@@ -6,7 +6,8 @@ disk space, so for every archive this script
     2. probes them (same columns as Step 1) and extracts their I-frames (same as Step 3),
     3. deletes the staged videos and marks the archive as done.
 Results are appended to data/metadata/inventory_acid.csv (merged by 01_inventory.py)
-and frames land in data/frames/ACID/<device>/. Re-running skips finished archives.
+and frames land in data/frames/ACID/<device>/. Re-running skips finished archives and
+redoes an interrupted one from scratch, so the script can be stopped at any time.
 
 Run 01_inventory.py -> 02_splits.py -> 03_extract_frames.py afterwards so ACID gets
 splits/roles and its frames are registered in frames_index.csv.
@@ -73,7 +74,9 @@ def process_video(path, split, frames_dir, crop, max_frames):
         try:
             frames = extract_iframes(path, build_filter(w, h, w, h, 0, crop, step), crop, max_frames)
             out.parent.mkdir(parents=True, exist_ok=True)
-            np.save(out, frames)
+            tmp = out.with_suffix(".tmp.npy")
+            np.save(tmp, frames)
+            tmp.rename(out)
         except RuntimeError as e:
             row.update(ok=False, error=str(e)[-300:])
     return row
@@ -104,6 +107,10 @@ def main():
         if per_device == 0:
             continue
         dest = staging / split
+        # an unfinished archive (e.g. PC shut down mid-run) may have left partial frame files: redo it
+        for d in (paths["frames_dir"] / "ACID").glob(f"{model_dir[:3]}_D*"):
+            shutil.rmtree(d)
+        shutil.rmtree(dest / model_dir, ignore_errors=True)
         print(f"\n{split}/{model_dir}: streaming {tar_path.stat().st_size / 1e9:.1f} GB")
         try:
             staged = stage_archive(tar_path, dest, per_device)
