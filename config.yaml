@@ -1,0 +1,57 @@
+# Hybrid Video Provenance Framework (HVPF) - pipeline configuration.
+# Relative paths are resolved against the project root.
+
+paths:
+  vision_root: ~/Downloads/Vision-Dataset
+  acid_root: ~/datasets/VideoACID/Full      # train/ and eval/ hold one tar.gz (or extracted folder) per model
+  floreview_root: ~/datasets/FloreView      # not downloaded yet
+  data_dir: data
+  metadata_dir: data/metadata
+  frames_dir: data/frames
+  fingerprints_dir: data/fingerprints
+  results_dir: data/results
+
+vision:
+  # In-camera digital stabilization. VISION's paper flags all Apple devices except
+  # D09/D13, plus D12; Mandelli et al. (TIFS 2020, arXiv:1811.01820) additionally
+  # found D25 and D32 to be stabilized. We use the union.
+  stabilized_devices: [D02, D05, D06, D10, D12, D14, D15, D18, D19, D20, D25, D29, D32, D34]
+  # Misplaced videos listed in the VISION README errata (16/04/2019).
+  errata:
+    - D03_V_flat_still_0002.mp4
+    - D03_V_flatYT_still_0002.mp4
+    - D03_V_flatWA_still_0002.mp4
+    - D19_V_flat_move_0002.mov
+    - D19_V_flatYT_move_0002.mp4
+    - D19_V_flatWA_move_0002.mp4
+
+inventory:
+  workers: 8
+
+acid:
+  # Archives are streamed (scripts/01b_acid_stage.py); only this many videos per
+  # device are kept. The first `splits.acid_reference_videos` of them estimate K.
+  videos_per_device: 40
+  eval_videos_per_device: 0     # the train archives already hold enough per device
+
+splits:
+  seed: 42
+  # Fractions of camera models per split. All devices of the same model stay in one split
+  # (stricter than device-level: Noiseprint is a model-level trace), and VISION + ACID
+  # devices of the same phone model are grouped across datasets. FloreView is never split:
+  # it is the cross-dataset test set.
+  train: 0.6
+  val: 0.2
+  test: 0.2
+  n_folds: 5
+  # Same camera module sold under two model codes (OnePlus 3 regional variants).
+  model_aliases:
+    oneplusa3003: oneplusa3000
+  # ACID has no flat videos: the first N videos of each device are reference-only
+  # (used to estimate K), the rest are samples.
+  acid_reference_videos: 10
+
+frames:
+  max_iframes: 30   # evenly spaced over all I-frames of the video
+  crop: 480         # center crop (sensor orientation, native geometry); 480 because D04 and D23 record 800x480 / 640x480
+  workers: 8

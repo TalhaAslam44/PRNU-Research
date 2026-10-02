@@ -1,0 +1,11 @@
+# Python environment
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Generated data: frames, fingerprints, metadata, results (rebuilt by scripts/01-04)
+data/
+
+# Local Claude Code settings
+.claude/settings.local.json
