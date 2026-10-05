@@ -8,6 +8,7 @@ Probes every video with ffprobe and writes:
 Usage:
     python scripts/01_inventory.py                 # VISION + already-extracted ACID
     python scripts/01_inventory.py --limit 20      # quick smoke test
+    python scripts/01_inventory.py --fresh         # re-probe everything (default reuses unchanged files)
 """
 import argparse
 import sys
@@ -30,10 +31,27 @@ COLUMNS = [
 ]
 
 
-def probe_all(rows, workers):
+PROBE_COLS = ["codec", "profile", "width", "height", "pix_fmt", "fps", "n_frames", "n_iframes",
+              "duration_s", "bitrate_kbps", "size_mb", "container", "rotation", "ok", "error"]
+
+
+def probe_all(rows, workers, previous=None):
+    """ffprobe every row, reusing results from a previous inventory for files whose size is unchanged."""
+    cached = {} if previous is None else {r["path"]: r for r in previous.to_dict("records")}
+    out, todo = list(rows), []
+    for i, r in enumerate(rows):
+        old, f = cached.get(r["path"]), Path(r["path"])
+        if old is not None and old["ok"] and f.exists() and abs(f.stat().st_size / 1e6 - old["size_mb"]) < 0.01:
+            out[i] = {**r, **{c: old[c] for c in PROBE_COLS}}
+        else:
+            todo.append(i)
+    if previous is not None:
+        print(f"reusing {len(rows) - len(todo)} earlier probes, probing {len(todo)} files")
     with ThreadPoolExecutor(workers) as ex:
-        results = list(tqdm(ex.map(lambda r: probe(r["path"]), rows), total=len(rows), desc="ffprobe"))
-    return [{**r, **res} for r, res in zip(rows, results)]
+        results = list(tqdm(ex.map(lambda i: probe(rows[i]["path"]), todo), total=len(todo), desc="ffprobe"))
+    for i, res in zip(todo, results):
+        out[i] = {**rows[i], **res}
+    return out
 
 
 def device_table(df):
@@ -66,6 +84,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, help="probe only the first N files (smoke test)")
     ap.add_argument("--no-acid", action="store_true")
+    ap.add_argument("--fresh", action="store_true", help="re-probe every file instead of reusing inventory.csv")
     args = ap.parse_args()
 
     cfg = load_config()
@@ -93,7 +112,9 @@ def main():
 
     stabilized = set(cfg["vision"]["stabilized_devices"])
     errata = set(cfg["vision"]["errata"])
-    rows = probe_all(rows, cfg["inventory"]["workers"])
+    previous_path = out / "inventory.csv"
+    previous = pd.read_csv(previous_path) if previous_path.exists() and not (args.fresh or args.limit) else None
+    rows = probe_all(rows, cfg["inventory"]["workers"], previous)
     df = pd.DataFrame(rows)
     df["stabilized"] = (df.dataset == "VISION") & df.device.isin(stabilized)
     df["errata"] = df.path.map(lambda p: Path(p).name in errata)

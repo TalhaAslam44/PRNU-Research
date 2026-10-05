@@ -182,6 +182,12 @@ def main():
     targets = samples.groupby("device").head(args.limit or acfg["videos_per_device"])
     if args.devices:
         targets = targets[targets.device.isin(args.devices)]
+    # skip videos that are missing or still being copied (size differs from the Step 1 inventory)
+    complete = [Path(p).exists() and abs(Path(p).stat().st_size / 1e6 - mb) < 0.01
+                for p, mb in zip(targets.path, targets.size_mb)]
+    if not all(complete):
+        print(f"skipping {len(complete) - sum(complete)} target videos that are missing or incomplete; re-run later")
+        targets = targets[complete]
 
     tmp_dir = paths["data_dir"] / "staging" / "attacks"
     tmp_dir.mkdir(parents=True, exist_ok=True)
