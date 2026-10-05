@@ -97,3 +97,12 @@ def scan_acid_extracted(root):
                 if row:
                     rows.append(row)
     return rows
+
+
+def resolve_paths(df, paths):
+    """Point VISION file paths at the configured `vision_root`, so the dataset can be
+    moved (e.g. to another disk) by editing config.yaml instead of re-running Step 1."""
+    df = df.copy()
+    vision = df.dataset == "VISION"
+    df.loc[vision, "path"] = [str(paths["vision_root"] / Path(p).name) for p in df.loc[vision, "path"]]
+    return df

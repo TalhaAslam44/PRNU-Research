@@ -55,3 +55,18 @@ frames:
   max_iframes: 30   # evenly spaced over all I-frames of the video
   crop: 480         # center crop (sensor orientation, native geometry); 480 because D04 and D23 record 800x480 / 640x480
   workers: 8
+
+attacks:
+  types: [removal, injection, denoise]
+  # removal/injection strength in units of a 1% PRNU. Removal over-subtracts above ~0.5
+  # (PCE turns strongly negative), so the grid stays low; removal_opt adds the attacker's own optimum.
+  alphas: [0.25, 0.5, 1.0]
+  adaptive_removal: true            # extra removal_opt variant (white-box attacker, PCE ~ 0)
+  white_box_steps: 2                # secant encodes per clip for removal_opt
+  denoise_strengths: [1.0, 2.0, 4.0]   # x hqdn3d default strength
+  videos_per_device: 12     # natural native VISION videos per device (about all of them)
+  clip_seconds: 30          # one I-frame per second -> ~30 frames, like the organic samples
+  crf: 20
+  preset: medium
+  keep_videos: false        # true keeps the attacked mp4 next to its frames
+  workers: 4

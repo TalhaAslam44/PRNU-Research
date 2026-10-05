@@ -22,6 +22,7 @@ from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from hvpf.config import load_config
+from hvpf.datasets import resolve_paths
 from hvpf.frames import build_filter, extract_iframes
 
 
@@ -79,7 +80,7 @@ def main():
     cfg = load_config()
     paths, fcfg = cfg["paths"], cfg["frames"]
     crop, max_frames = fcfg["crop"], fcfg["max_iframes"]
-    videos = pd.read_csv(paths["metadata_dir"] / "videos.csv")
+    videos = resolve_paths(pd.read_csv(paths["metadata_dir"] / "videos.csv"), paths)
     videos = videos[videos.role.isin(["reference", "sample"])]
     too_small = (videos.version == "native") & ((videos.width < crop) | (videos.height < crop))
     videos = videos[~too_small]   # their YT/WA copies drop out in plan() with them

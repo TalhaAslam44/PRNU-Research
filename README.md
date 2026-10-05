@@ -23,11 +23,11 @@ All other settings are in `config.yaml` too. Run every script from the project r
 | Step | Script | Output | Status |
 |---|---|---|---|
 | 1 Inventory | `scripts/01_inventory.py` | `data/metadata/inventory.csv`, `inventory_devices.csv` (Chapter 5 table) | done (VISION + ACID M00) |
-| 1b ACID streaming | `scripts/01b_acid_stage.py` | `inventory_acid.csv`, `data/frames/ACID/` | running (40 videos per device) |
+| 1b ACID streaming | `scripts/01b_acid_stage.py` | `inventory_acid.csv`, `data/frames/ACID/` | running (40 videos per device; .MTS camcorders supported) |
 | 2 Splits | `scripts/02_splits.py` | `model_splits.csv`, `videos.csv` (split, fold, role per video) | done |
 | 3 I-frames | `scripts/03_extract_frames.py` | `data/frames/<dataset>/<device>/<content_id>__<version>.npy` | VISION done (1,480 videos, 39k frames, 8.5 GB) |
 | 4 PRNU baseline | `scripts/04_prnu_baseline.py` | `data/fingerprints/`, `data/results/prnu_baseline/` | VISION done |
-| 5 Attacks | - | | todo |
+| 5 Attacks | `scripts/05_attacks.py` | `data/frames/ATTACK/`, `data/metadata/attacks.csv` | tested on 2 videos; full run next |
 | 6 Synthetic class | - | | todo |
 | 7 Features | - | | todo (Noiseprint needs the GPU) |
 | 8-9 Models, evaluation | - | | todo |
@@ -57,6 +57,40 @@ Every script can be re-run; finished work (frames, fingerprints, ACID archives) 
   (their multi-image function assumes RGB) that matches theirs to 6e-7, plus a PCE evaluated at zero
   shift (`pce0`) next to the usual blind peak search (`pce`).
 
+## Step 5: manipulated class
+
+Targets are the 425 natural native VISION videos. The first 30 s of each are decoded once
+(sensor orientation, analysis crop, yuv420p; only luma is attacked) and re-encoded with
+libx264 (CRF 20, one I-frame per second, so ~30 I-frames like the organic samples):
+
+| Variant | What | Label | Claimed device |
+|---|---|---|---|
+| `reencode` | same encoder, no attack (control) | organic | own |
+| `removal_a{0.25,0.5,1}` | Y' = Y - a*Y*K_own | manipulated | own |
+| `removal_opt` | white-box: a tuned per clip until NCC with the analyst's reference is ~0 | manipulated | own |
+| `injection_a{0.25,0.5,1}` | Y' = Y + a*Y*K_victim | manipulated | victim |
+| `denoise_a{1,2,4}` | hqdn3d at 1/2/4 x default strength | manipulated | own |
+
+* `alpha` is in units of a 1% PRNU (attacker fingerprints are rescaled to std 0.01).
+* The control goes through the same encoder, so encoder traces cannot separate the classes.
+* Attacker fingerprints never reuse the analyst's flat-field reference: K_own comes from the
+  other half of the device's natural videos, K_victim from all natural videos of a
+  non-stabilized victim of another model in the same fold.
+* Removal over-subtracts above a ~ 0.3-0.5: PCE turns strongly negative (e.g. -4765 at a = 1),
+  itself a detectable trace. `removal_opt` is the hardest case for the PCE baseline (PCE ~ 0).
+  A natural-video-only attacker cannot calibrate it: VISION shoots each device's natural videos
+  at the same places, so two K estimates share scene residue and alpha comes out ~5x too small.
+
+Check on D01 / D08 (PCE0 with the analyst's reference, own device / victim):
+
+| Variant | D01 own | D01 victim | D08 own | D08 victim |
+|---|---|---|---|---|
+| reencode | 195 | 0 | 1381 | 1 |
+| removal 0.25 / 0.5 / 1 | 12 / -199 / -1296 | | 644 / 3 / -4765 | |
+| removal_opt | 0.1 (a=0.30) | | 0.0 (a=0.52) | |
+| injection 0.25 / 0.5 / 1 | 146 / 91 / 18 | 49 / 315 / 919 | 1343 / 1185 / 582 | 39 / 275 / 1357 |
+| denoise 1 / 2 / 4 | 103 / 75 / 38 | | 1124 / 918 / 454 | |
+
 ## Findings so far: PCE baseline, all 35 VISION devices (closed set, threshold 60)
 
 `data/results/prnu_baseline/summary.csv`, `summary_by_rotation.csv`, and `scores.parquet`.
@@ -84,6 +118,9 @@ Every script can be re-run; finished work (frames, fingerprints, ACID archives) 
 * GPU: the RTX 3080 is idle because the machine booted kernel 6.8.0-53, and the
   `nvidia-driver-595` modules exist only for 6.8.0-142/146. Reboot into 6.8.0-146
   (GRUB > Advanced options) before Step 7/8; until then `torch.cuda.is_available()` is False.
+* `data/frames/ATTACK` is a symlink to `/media/talhaaslam/Disk/PRNU-Research-data/frames/ATTACK`
+  (second partition, ~300 GB free). That partition is not in `/etc/fstab`: after a reboot,
+  open it once in Files so it is mounted before running Step 5 or later steps.
 * Disk: about 50 GB free on a spinning disk (~90 MB/s). ACID (177 GB of archives) and FloreView
   (~95 GB of videos, URL list in `data/metadata/floreview_video_urls.txt`) must be streamed:
   download or unpack a device, extract frames, delete the videos.
