@@ -2,6 +2,7 @@
 
 Run third_party/get_noiseprintpp.sh once, and Step 7 first (it writes data/features/samples.csv).
 
+Only the first `features.window` frames of each clip are used, like the model inputs.
 Per frame, the Noiseprint++ map gets content-independent statistics: std, kurtosis and
 the FFT statistics of Step 7 (flatness, high-frequency share, peak ratio, periodic peaks,
 8-px block energy), prefixed `np_`. Per video: their mean/std, plus the spectral similarity
@@ -80,6 +81,7 @@ def main():
     if args.limit:
         samples = pd.concat(g.sample(min(args.limit, len(g)), random_state=0) for _, g in samples.groupby("label"))
 
+    window = cfg["features"]["window"]   # the models only use the first `window` frames
     net, dev = load_model()
     spectra = Spectra(cfg["frames"]["crop"])
     refs, common = reference_spectra(paths, net, dev, spectra, paths["fingerprints_dir"] / "noiseprint")
@@ -88,7 +90,7 @@ def main():
 
     frame_parts, video_rows = [], []
     for s in tqdm(samples.itertuples(), total=len(samples), desc="noiseprint"):
-        maps = noiseprint_maps(net, dev, np.load(s.frames_path))
+        maps = noiseprint_maps(net, dev, np.load(s.frames_path)[:window])
         rows = [{"frame": i, "np_std": float(m.std()), "np_kurt": float(kurtosis(m, axis=None)),
                  **{f"np_{k.removeprefix('fft_')}": v for k, v in fft_stats(m).items()}}
                 for i, m in enumerate(maps)]
