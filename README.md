@@ -27,10 +27,11 @@ All other settings are in `config.yaml` too. Run every script from the project r
 | 2 Splits | `scripts/02_splits.py` | `model_splits.csv`, `videos.csv` (split, fold, role per video) | done |
 | 3 I-frames | `scripts/03_extract_frames.py` | `data/frames/<dataset>/<device>/<content_id>__<version>.npy` | done: VISION 1,480 videos (39k frames), ACID 1,760 videos (~6 I-frames each) |
 | 4 PRNU baseline | `scripts/04_prnu_baseline.py` | `data/fingerprints/`, `data/results/prnu_baseline/<DATASET>/` | done (VISION, ACID) |
-| 5 Attacks | `scripts/05_attacks.py` | `data/frames/ATTACK/`, `data/metadata/attacks.csv` | running (358 + 42 VISION videos x 11 variants) |
-| 6 Synthetic class | `scripts/06_synthetic.py` | `data/frames/SYNTH/`, `data/metadata/synthetic.csv` | running (~1,500 clips) |
-| 7 Features | `scripts/07_features.py` | `data/features/{samples.csv,frames.parquet,videos.parquet}` | written and tested; Noiseprint (7b, GPU) todo |
-| 8-9 Models, evaluation | - | | todo |
+| 5 Attacks | `scripts/05_attacks.py` | `data/frames/ATTACK/`, `data/metadata/attacks.csv` | running: 400 VISION videos x 11 variants |
+| 6 Synthetic class | `scripts/06_synthetic.py` | `data/frames/SYNTH/`, `data/metadata/synthetic.csv` | done: 1,492 clips (892 GenVidBench, 600 GenBuster) |
+| 7 Features | `scripts/07_features.py` | `data/features/{samples.csv,frames.parquet,videos.parquet}` | written and tested; full run queued (`scripts/07b_noiseprint.py` for Noiseprint, GPU) |
+| 8 Models | `scripts/08_models.py`, `scripts/run_models.sh` | `data/results/models/*.parquet` | written and tested; full run queued |
+| 9 Evaluation | `scripts/09_evaluate.py` | `data/results/metrics/{summary,per_variant,ablation}.csv`, `results.md` | written and tested |
 
 Every script can be re-run; finished work (frames, fingerprints, ACID archives) is skipped.
 
@@ -130,6 +131,19 @@ Grid-sensitive features see this (Noiseprint 8-px block energy ~4 vs 0.65 for or
 Steps 8-9 therefore report two protocols: *realistic* (all organic samples vs manipulated/synthetic) and
 *encoder-controlled* (only x264 clips: `reencode` controls vs attacks vs synthetic), where encoder and grid
 are identical across classes and only genuine noise traces can separate them.
+
+## Steps 8-9: models and evaluation
+
+* Inputs come from the first 5 I-frames of every clip (VISION has ~30, ACID ~6, synthetic 2-20), so
+  clip length cannot act as a shortcut.
+* Models: the conventional PCE rule (organic if PCE0 with the claimed camera > 60), SVM, XGBoost,
+  and GRU / 1D-CNN / Transformer on the per-frame sequences joined with the clip features
+  (Adam, lr 0.001, L2 weight decay, class-balanced loss, early stopping on validation macro F1).
+* Metrics: PVA (3-class accuracy, thesis 6.8), macro precision/recall/F1, one-vs-rest AUC,
+  authentic-vs-not AUC and EER (where the PCE rule is compared), per-variant detection rates for RQ2
+  (native/YouTube/WhatsApp, attack type and alpha, generator, stabilization), GenBuster as unseen
+  generators, and an ablation that drops one feature group at a time (5-fold CV).
+* `scripts/run_models.sh` runs every protocol x scheme plus the ablations, then Step 9.
 
 ## Findings so far: ACID PCE baseline (44 devices, 20 natural reference videos each)
 
