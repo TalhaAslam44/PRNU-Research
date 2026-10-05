@@ -34,6 +34,11 @@ from hvpf.datasets import ACID_FILE_RE, parse_acid
 from hvpf.frames import build_filter, extract_iframes
 from hvpf.media import VIDEO_EXTS, probe
 
+COLUMNS = ["dataset", "device", "brand", "model", "model_key", "scene", "scene_group", "motion", "version",
+           "content_id", "path", "codec", "profile", "width", "height", "pix_fmt", "fps", "n_frames",
+           "n_iframes", "duration_s", "bitrate_kbps", "size_mb", "container", "rotation", "ok", "error",
+           "stabilized", "errata"]
+
 
 def stage_archive(tar_path, dest, per_device):
     """Copy the first `per_device` videos of each device out of a streamed tar.gz."""
@@ -125,11 +130,11 @@ def main():
             rows = list(tqdm(ex.map(lambda p: process_video(p, split, paths["frames_dir"], fcfg["crop"],
                                                             fcfg["max_iframes"]), staged),
                              total=len(staged), desc="  probe + I-frames"))
-        df = pd.DataFrame(rows)
+        df = pd.DataFrame(rows).reindex(columns=COLUMNS)    # fixed order: failed rows lack probe fields
         df.to_csv(inv_path, mode="a", header=not inv_path.exists(), index=False)
         shutil.rmtree(dest / model_dir, ignore_errors=True)
         marker.touch()
-        print(f"  kept {len(df)} videos from {df.device.nunique()} device(s), {(~df.ok).sum()} failed")
+        print(f"  kept {len(df)} videos from {df.device.nunique()} device(s), {(~df.ok.astype(bool)).sum()} failed")
 
 
 if __name__ == "__main__":

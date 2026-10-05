@@ -119,7 +119,7 @@ def main():
     df["stabilized"] = (df.dataset == "VISION") & df.device.isin(stabilized)
     df["errata"] = df.path.map(lambda p: Path(p).name in errata)
     if streamed is not None and not args.limit:
-        df = pd.concat([df, streamed]).drop_duplicates("content_id", keep="first")
+        df = pd.concat([df, streamed]).drop_duplicates(["dataset", "content_id", "version"], keep="first")
     df = df.reindex(columns=COLUMNS)
 
     suffix = "_smoke" if args.limit else ""

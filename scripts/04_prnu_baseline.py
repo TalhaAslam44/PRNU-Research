@@ -6,11 +6,11 @@
 2. Query fingerprint per sample video (native / YouTube / WhatsApp) from its
    I-frames, cached under data/fingerprints/queries/
 3. PCE + normalized correlation of every query against every device of the same dataset
-   -> data/results/prnu_baseline/scores.parquet (one row per query x candidate device)
+   -> data/results/prnu_baseline/<DATASET>/scores.parquet (one row per query x candidate device)
 4. Summary: closed-set attribution accuracy and PCE-threshold verification
    (TPR / FPR / AUC / EER) by version and stabilization, for PCE with a blind
    peak search (`pce`) and PCE at zero shift (`pce0`, frames are pre-aligned)
-   -> data/results/prnu_baseline/summary.csv, summary_by_rotation.csv
+   -> data/results/prnu_baseline/<DATASET>/summary.csv, summary_by_rotation.csv
 
 Usage:
     python scripts/04_prnu_baseline.py
@@ -82,7 +82,7 @@ def main():
     cfg = load_config()
     paths = cfg["paths"]
     fp_dir = paths["fingerprints_dir"]
-    out_dir = paths["results_dir"] / "prnu_baseline"
+    out_dir = paths["results_dir"] / "prnu_baseline" / "+".join(sorted(args.datasets))
     out_dir.mkdir(parents=True, exist_ok=True)
 
     table = load_table(paths)

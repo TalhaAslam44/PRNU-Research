@@ -49,7 +49,7 @@ splits:
     oneplusa3003: oneplusa3000
   # ACID has no flat videos: the first N videos of each device are reference-only
   # (used to estimate K), the rest are samples.
-  acid_reference_videos: 10
+  acid_reference_videos: 20      # ACID clips are ~6 s (~6 I-frames): 20 videos ~ 120 frames per K
 
 frames:
   max_iframes: 30   # evenly spaced over all I-frames of the video
@@ -70,3 +70,20 @@ attacks:
   preset: medium
   keep_videos: false        # true keeps the attacked mp4 next to its frames
   workers: 4
+
+
+synthetic:
+  root: /media/talhaaslam/Disk/datasets/synthetic/extracted
+  # role sample: train/val/test by claimed device; crossdataset: unseen-source test set only
+  sources:
+    - {dir: OpenAI_Sora, generator: Sora, dataset: GenVidBench, role: sample}
+    - {dir: keling, generator: Kling, dataset: GenVidBench, role: sample}
+    - {dir: cogvideo, generator: CogVideo, dataset: GenVidBench, role: sample}
+    - {dir: OpenSora_13800, generator: OpenSora, dataset: GenVidBench, role: sample}
+    - {dir: GenBuster-200K-mini/train/fake, generator: from_subdir, dataset: GenBuster, role: crossdataset}
+  videos_per_generator: 300
+  crossdataset_videos_per_generator: 150
+  clip_seconds: 30          # encoded like the attacks: libx264, one I-frame per second
+
+features:
+  window: 5        # w_* features use the first 5 frames: synthetic/ACID clips have ~5-10
