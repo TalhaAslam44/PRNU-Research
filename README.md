@@ -22,14 +22,14 @@ All other settings are in `config.yaml` too. Run every script from the project r
 
 | Step | Script | Output | Status |
 |---|---|---|---|
-| 1 Inventory | `scripts/01_inventory.py` | `data/metadata/inventory.csv`, `inventory_devices.csv` (Chapter 5 table) | done (VISION + ACID M00) |
-| 1b ACID streaming | `scripts/01b_acid_stage.py` | `inventory_acid.csv`, `data/frames/ACID/` | running (40 videos per device; .MTS camcorders supported) |
+| 1 Inventory | `scripts/01_inventory.py` | `data/metadata/inventory.csv`, `inventory_devices.csv` (Chapter 5 table) | done: VISION 1,914 + ACID 1,840 videos |
+| 1b ACID streaming | `scripts/01b_acid_stage.py` | `inventory_acid.csv`, `data/frames/ACID/` | done: 46 devices x 40 videos; Nokia 6.1 (M23, 2 devices) unreadable by FFmpeg 6.1 |
 | 2 Splits | `scripts/02_splits.py` | `model_splits.csv`, `videos.csv` (split, fold, role per video) | done |
-| 3 I-frames | `scripts/03_extract_frames.py` | `data/frames/<dataset>/<device>/<content_id>__<version>.npy` | VISION done (1,480 videos, 39k frames, 8.5 GB) |
-| 4 PRNU baseline | `scripts/04_prnu_baseline.py` | `data/fingerprints/`, `data/results/prnu_baseline/` | VISION done |
-| 5 Attacks | `scripts/05_attacks.py` | `data/frames/ATTACK/`, `data/metadata/attacks.csv` | tested on 2 videos; full run next |
-| 6 Synthetic class | - | | todo |
-| 7 Features | - | | todo (Noiseprint needs the GPU) |
+| 3 I-frames | `scripts/03_extract_frames.py` | `data/frames/<dataset>/<device>/<content_id>__<version>.npy` | done: VISION 1,480 videos (39k frames), ACID 1,760 videos (~6 I-frames each) |
+| 4 PRNU baseline | `scripts/04_prnu_baseline.py` | `data/fingerprints/`, `data/results/prnu_baseline/<DATASET>/` | done (VISION, ACID) |
+| 5 Attacks | `scripts/05_attacks.py` | `data/frames/ATTACK/`, `data/metadata/attacks.csv` | running (358 + 42 VISION videos x 11 variants) |
+| 6 Synthetic class | `scripts/06_synthetic.py` | `data/frames/SYNTH/`, `data/metadata/synthetic.csv` | running (~1,500 clips) |
+| 7 Features | `scripts/07_features.py` | `data/features/{samples.csv,frames.parquet,videos.parquet}` | written and tested; Noiseprint (7b, GPU) todo |
 | 8-9 Models, evaluation | - | | todo |
 
 Every script can be re-run; finished work (frames, fingerprints, ACID archives) is skipped.
@@ -91,9 +91,57 @@ Check on D01 / D08 (PCE0 with the analyst's reference, own device / victim):
 | injection 0.25 / 0.5 / 1 | 146 / 91 / 18 | 49 / 315 / 919 | 1343 / 1185 / 582 | 39 / 275 / 1357 |
 | denoise 1 / 2 / 4 | 103 / 75 / 38 | | 1124 / 918 / 454 | |
 
+## Step 6: synthetic class
+
+| Source | Generators | Clips used | Frames per clip | Role |
+|---|---|---|---|---|
+| [GenVidBench](https://huggingface.co/datasets/jian-0/GenVidBench) | Sora (1080p, ~17 s), Kling (720p, 5-10 s), CogVideo (480x480, 4 s), OpenSora (512x512, 2 s) | up to 300 each | ~19 / ~10 / 5 / 2 | train/val/test |
+| [GenBuster-200K-mini](https://huggingface.co/datasets/l8cv/GenBuster-200K-mini) | CogVideoX, EasyAnimate, HunyuanVideo, LTX-Video (1024x1024 HEVC, 5 s) | 150 each | 6 | unseen-source test only |
+
+* Generator files hold almost no I-frames (Kling T2V: 1 per clip), so synthetic clips go through
+  the same libx264 encoder as the attacks and the organic `reencode` control (one I-frame per second,
+  same crop). Frame type, spacing and encoder are then identical across classes; denser sampling for
+  short clips was rejected because closer frames inflate TSNCS (a false "synthetic" cue).
+* Each clip claims a random camera (VISION or ACID) of a random fold; its split follows that camera.
+  GenBuster's real clips are not used (no camera reference).
+* Archives are stored on the second partition (`/media/talhaaslam/Disk/datasets/synthetic`),
+  re-downloadable with its `download.sh`.
+
+## Step 7: features
+
+One denoising pass per frame (`hvpf/features.py`) gives, per frame: NCC and zero-shift PCE of the
+residual W with I*K of the claimed camera, residual std/skew/kurtosis, FFT statistics of W (flatness,
+high-frequency share, peak ratio, periodic-peak count, 8-px block energy) and TSNCS (NCC of consecutive
+residuals). Per video: the clip's MLE fingerprint from all frames (`v_*`) and from the first 5 frames
+(`w_*`, comparable across short and long clips), scored against the claimed camera and against every
+other known camera (`*_max_other`: injection leaves the true camera's PRNU next to the victim's),
+plus mean/std of the per-frame values. Check on the Step 5 test clips: injection a=0.25 keeps the true
+camera at PCE 146 (`max_other`); strong removal raises TSNCS from ~0.002 to 0.165.
+
+**Step 7b (Noiseprint++, GPU):** `third_party/get_noiseprintpp.sh` fetches GRIP-UNINA's network and
+weights (TruFor, pinned commit; nonprofit licence, not committed here). On our luma-only video I-frames
+Noiseprint++ does not attribute cameras (spatial or spectral similarity: ~20% top-1 on 10 VISION cameras,
+chance 10%), so it contributes output statistics (map std, kurtosis, FFT statistics) plus a weak spectral
+similarity to the claimed camera; the ablation decides what it adds.
+
+**Encoder confound and the controlled protocol.** Every clip we encode with libx264 (attacks, the
+`reencode` control, synthetic clips) has its macroblock grid at the crop origin; camera originals do not.
+Grid-sensitive features see this (Noiseprint 8-px block energy ~4 vs 0.65 for organic WhatsApp clips).
+Steps 8-9 therefore report two protocols: *realistic* (all organic samples vs manipulated/synthetic) and
+*encoder-controlled* (only x264 clips: `reencode` controls vs attacks vs synthetic), where encoder and grid
+are identical across classes and only genuine noise traces can separate them.
+
+## Findings so far: ACID PCE baseline (44 devices, 20 natural reference videos each)
+
+Attribution 50.7% (pce0), AUC 0.80, far below VISION: no flat videos, ~6 I-frames per clip, and
+many 2017-18 devices stabilize electronically. Per device it is bimodal: DSLRs, action cameras and
+Samsung phones reach 95-100% (match PCE 100-3000), while 19 devices (Pixel 1/2, iPhone 8 Plus,
+LG Q6, Zenfone 3, compact cameras/camcorders with digital IS) have median match PCE < 5. They are
+listed as `acid.prnu_weak_devices` (analysis flag; splits unchanged).
+
 ## Findings so far: PCE baseline, all 35 VISION devices (closed set, threshold 60)
 
-`data/results/prnu_baseline/summary.csv`, `summary_by_rotation.csv`, and `scores.parquet`.
+`data/results/prnu_baseline/VISION/summary.csv`, `summary_by_rotation.csv`, and `scores.parquet`.
 
 | Version | Devices | Attribution (pce0) | AUC pce0 | AUC blind PCE | EER pce0 |
 |---|---|---|---|---|---|

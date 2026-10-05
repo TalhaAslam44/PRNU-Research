@@ -33,6 +33,11 @@ acid:
   # device are kept. The first `splits.acid_reference_videos` of them estimate K.
   videos_per_device: 40
   eval_videos_per_device: 0     # the train archives already hold enough per device
+  # Empirical: median matching PCE0 < 5 in the Step 4 ACID baseline (attribution <= 35%),
+  # i.e. no usable video PRNU - typically electronic stabilization (Pixel 1/2, iPhone 8 Plus,
+  # compact cameras / camcorders with digital IS). Analysis flag only; splits are unchanged.
+  prnu_weak_devices: [M00_DA, M01_DA, M04_DA, M05_DA, M08_DA, M10_DA, M10_DB, M10_DC, M11_DA, M12_DA,
+                      M14_DA, M16_DA, M16_DB, M19_DA, M22_DA, M24_DA, M25_DA, M26_DA, M33_DA]
 
 splits:
   seed: 42
@@ -84,6 +89,7 @@ synthetic:
   videos_per_generator: 300
   crossdataset_videos_per_generator: 150
   clip_seconds: 30          # encoded like the attacks: libx264, one I-frame per second
+  min_frames: 2             # TSNCS needs a pair; OpenSora clips are 2 s -> 2 I-frames
 
 features:
   window: 5        # w_* features use the first 5 frames: synthetic/ACID clips have ~5-10

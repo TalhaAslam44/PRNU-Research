@@ -104,6 +104,8 @@ def run_clip(r, acfg, scfg, crop, max_frames, frames_dir, tmp_dir):
         encode(y, uv, tmp, crop, fps, acfg["crf"], acfg["preset"], max(1, round(fps)))
         frames = extract_iframes(tmp, "format=gray", crop, max_frames)
         tmp.unlink()
+        if len(frames) < scfg["min_frames"]:
+            raise RuntimeError(f"only {len(frames)} I-frame(s): clip too short")
         out.parent.mkdir(parents=True, exist_ok=True)
         np.save(out.with_suffix(".tmp.npy"), frames)
         out.with_suffix(".tmp.npy").rename(out)

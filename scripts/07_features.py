@@ -33,40 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from hvpf.config import load_config
 from hvpf.features import clip_features, finish_fingerprint
 from hvpf.prnu_utils import FingerprintBank
-
-SAMPLE_COLS = ["sample_id", "label", "source", "variant", "alpha", "device", "claimed_device",
-               "claimed_dataset", "split", "fold", "stabilized", "source_rotation", "frames_path"]
-
-
-def build_samples(paths):
-    meta = paths["metadata_dir"]
-    videos = pd.read_csv(meta / "videos.csv")
-    frames = pd.read_csv(meta / "frames_index.csv")
-    frames = frames.loc[frames.status == "ok", ["content_id", "version", "frames_path"]]
-    native_rot = videos[videos.version == "native"].set_index("content_id").rotation
-
-    org = videos[videos.role == "sample"].merge(frames, on=["content_id", "version"])
-    org = org.assign(sample_id=org.content_id + "__" + org.version, label="organic", source=org.dataset,
-                     variant=org.version, alpha=np.nan, claimed_device=org.device,
-                     source_rotation=org.content_id.map(native_rot))
-    parts = [org]
-
-    if (meta / "attacks.csv").exists():
-        att = pd.read_csv(meta / "attacks.csv").query("status == 'ok'")
-        att = att.assign(sample_id=att.content_id + "__" + att.variant, source="VISION-attack",
-                         source_rotation=att.content_id.map(native_rot))
-        parts.append(att)
-    if (meta / "synthetic.csv").exists():
-        syn = pd.read_csv(meta / "synthetic.csv").query("status == 'ok'")
-        syn = syn.assign(sample_id=syn.content_id, source=syn.dataset, variant=syn.generator, alpha=np.nan,
-                         device=pd.NA, stabilized=False, source_rotation=0)
-        parts.append(syn)
-
-    df = pd.concat(parts, ignore_index=True)
-    dataset_of = videos.drop_duplicates("device").set_index("device").dataset
-    df["claimed_dataset"] = df.claimed_device.map(dataset_of)
-    return df.reindex(columns=SAMPLE_COLS)
-
+from hvpf.samples import build_samples
 
 _BANK = None
 _CFG = None
@@ -122,7 +89,7 @@ def main():
             refs[p.stem] = p
     samples = samples[samples.claimed_device.isin(refs.keys())]
     if args.limit:
-        samples = samples.groupby("label").head(args.limit)
+        samples = pd.concat(g.sample(min(args.limit, len(g)), random_state=0) for _, g in samples.groupby("label"))
     suffix = "_check" if args.limit else ""
     samples.to_csv(out / f"samples{suffix}.csv", index=False)
     print(samples.groupby(["label", "source"]).size().to_string())
