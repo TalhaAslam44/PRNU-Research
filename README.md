@@ -29,9 +29,9 @@ All other settings are in `config.yaml` too. Run every script from the project r
 | 4 PRNU baseline | `scripts/04_prnu_baseline.py` | `data/fingerprints/`, `data/results/prnu_baseline/<DATASET>/` | done (VISION, ACID) |
 | 5 Attacks | `scripts/05_attacks.py` | `data/frames/ATTACK/`, `data/metadata/attacks.csv` | running: 400 VISION videos x 11 variants |
 | 6 Synthetic class | `scripts/06_synthetic.py` | `data/frames/SYNTH/`, `data/metadata/synthetic.csv` | done: 1,492 clips (892 GenVidBench, 600 GenBuster) |
-| 7 Features | `scripts/07_features.py` | `data/features/{samples.csv,frames.parquet,videos.parquet}` | written and tested; full run queued (`scripts/07b_noiseprint.py` for Noiseprint, GPU) |
-| 8 Models | `scripts/08_models.py`, `scripts/run_models.sh` | `data/results/models/*.parquet` | written and tested; full run queued |
-| 9 Evaluation | `scripts/09_evaluate.py` | `data/results/metrics/{summary,per_variant,ablation}.csv`, `results.md` | written and tested |
+| 7 Features | `scripts/07_features.py` | `data/features/{samples.csv,frames.parquet,videos.parquet}` | done: 8,031 samples (`scripts/07b_noiseprint.py` for Noiseprint, GPU) |
+| 8 Models | `scripts/08_models.py`, `scripts/run_models.sh` | `data/results/models/*.parquet` | done: 14 configurations |
+| 9 Evaluation | `scripts/09_evaluate.py` | `data/results/metrics/{summary,per_variant,ablation}.csv`, `results.md` | done |
 
 Every script can be re-run; finished work (frames, fingerprints, ACID archives) is skipped.
 
@@ -144,6 +144,33 @@ are identical across classes and only genuine noise traces can separate them.
   (native/YouTube/WhatsApp, attack type and alpha, generator, stabilization), GenBuster as unseen
   generators, and an ablation that drops one feature group at a time (5-fold CV).
 * `scripts/run_models.sh` runs every protocol x scheme plus the ablations, then Step 9.
+
+## Results: models (Steps 8-9, 5-fold grouped CV, test folds)
+
+| Protocol | Model | PVA | macro F1 | AUC (3-class) | AUC authentic vs not | EER |
+|---|---|---|---|---|---|---|
+| realistic | PCE rule (baseline) | - | - | - | 0.568 | 0.449 |
+| realistic | SVM | 0.810 | 0.818 | 0.929 | 0.902 | 0.169 |
+| realistic | XGBoost | 0.833 | 0.842 | 0.954 | 0.937 | 0.150 |
+| realistic | GRU | **0.837** | **0.852** | 0.953 | 0.930 | 0.156 |
+| realistic | 1D-CNN | 0.804 | 0.813 | 0.940 | 0.914 | 0.173 |
+| realistic | Transformer | 0.816 | 0.830 | 0.943 | 0.916 | 0.171 |
+| controlled | PCE rule (baseline) | - | - | - | 0.631 | 0.388 |
+| controlled | XGBoost | **0.880** | 0.703 | 0.927 | 0.859 | 0.230 |
+| controlled | GRU | 0.779 | 0.695 | 0.916 | 0.833 | 0.249 |
+
+* RQ3: every learned model beats the conventional PCE rule by a wide margin (authentic-vs-not AUC
+  0.90-0.94 vs 0.57). The PCE rule is blind to injection (detects 0-45% of injected clips; models 74-98%)
+  and flags most social-media copies of genuine videos as inauthentic (15-16% correct; models 80-99%).
+* Strength (RQ2): detection grows monotonically with attack strength for removal, injection and
+  denoising; the white-box removal (PCE ~ 0) is still caught 68-84% of the time.
+* Synthetic: CogVideo/OpenSora ~98%, Kling ~91%, Sora 53-65% (51 clips only); unseen GenBuster
+  generators 64-74% (XGBoost best).
+* Ablation (macro-F1 drop): Noiseprint statistics 0.06-0.12, PRNU 0.02-0.05, TSNCS up to 0.03, FFT and
+  residual moments small. Caveat: WhatsApp copies appear only in the organic class, so their 99% may
+  partly reflect "looks like WhatsApp"; re-sharing attacked/synthetic clips through a WhatsApp-like
+  encoder would remove that shortcut. In the controlled protocol (400 organic vs 4,000 manipulated) the
+  re-encoded organic controls are the hardest class (24-65% recall).
 
 ## Findings so far: ACID PCE baseline (44 devices, 20 natural reference videos each)
 
