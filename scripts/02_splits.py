@@ -123,9 +123,13 @@ def main():
     per_content = inv.groupby("content_id").split.nunique()
     assert per_device.max() == 1, "a device spans several splits"
     assert per_content.max() == 1, "versions of one recording span several splits"
+    in_splits = inv[inv.split.isin(SPLITS)]
     for s in SPLITS:
-        others = set(inv.loc[inv.split != s, "group"])
-        assert not (set(inv.loc[inv.split == s, "group"]) & others), f"model leak into {s}"
+        others = set(in_splits.loc[in_splits.split != s, "group"])
+        assert not (set(in_splits.loc[in_splits.split == s, "group"]) & others), f"model leak into {s}"
+    # FloreView is test-only; a camera *model* it shares with VISION/ACID is allowed but recorded
+    seen = set(in_splits.group)
+    inv["model_seen"] = (inv.dataset == "FloreView") & inv.group.isin(seen)
 
     print("Model groups per split:")
     print(groups.groupby("split").agg(models=("group", "size"), devices=("weight", "sum"),
@@ -140,6 +144,11 @@ def main():
     print("\nVISION devices per fold (stabilized in brackets):")
     for f, d in vis.groupby("fold"):
         print(f"  fold {f}: " + " ".join(f"[{x}]" if st else x for x, st in zip(d.device, d.stabilized)))
+    fv = inv[inv.dataset == "FloreView"].drop_duplicates("device")
+    if len(fv):
+        shared = fv[fv.model_seen]
+        print(f"\nFloreView: {len(fv)} cameras; {len(shared)} share their model with VISION/ACID: "
+              + ", ".join(f"{d} ({m})" for d, m in zip(shared.device, shared.model_key)))
     print("\nNo device, model, or recording crosses splits. Wrote model_splits.csv and videos.csv")
 
 
