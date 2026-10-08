@@ -2,9 +2,9 @@
 # Relative paths are resolved against the project root.
 
 paths:
-  vision_root: ~/Downloads/Vision-Dataset
-  acid_root: ~/datasets/VideoACID/Full      # train/ and eval/ hold one tar.gz (or extracted folder) per model
-  floreview_root: ~/datasets/FloreView      # not downloaded yet
+  vision_root: /media/talhaaslam/Disk/datasets/Vision-Dataset
+  acid_root: ~/Data/datasets/VideoACID/Full      # train/ and eval/ hold one tar.gz and its extracted folder per model
+  floreview_root: /media/talhaaslam/Disk/datasets/FloreView
   data_dir: data
   metadata_dir: data/metadata
   frames_dir: data/frames

@@ -12,3 +12,7 @@ data/
 
 # GRIP-UNINA Noiseprint++ (fetched by third_party/get_noiseprintpp.sh, nonprofit licence)
 third_party/noiseprintpp/
+
+# Local backup archives
+*.zip
+*.tar.gz

@@ -1,0 +1,102 @@
+{
+  // Run any step with: Ctrl+Shift+P -> "Tasks: Run Task" -> pick the step.
+  // Every task runs from the project folder with the project's .venv Python.
+  "version": "2.0.0",
+  "options": {
+    "cwd": "${workspaceFolder}",
+    "env": { "PYTHONUNBUFFERED": "1" }
+  },
+  "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+  "tasks": [
+    {
+      "label": "0 · Check environment (GPU, ffmpeg, data disk)",
+      "type": "shell",
+      "command": "nvidia-smi --query-gpu=name --format=csv,noheader; ffmpeg -version | head -1; findmnt -no TARGET /media/talhaaslam/Disk || echo 'DATA DISK NOT MOUNTED - open Disk in the Files app'; ${workspaceFolder}/.venv/bin/python test_environment.py",
+      "problemMatcher": []
+    },
+    {
+      "label": "C · FloreView: list missing videos",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python scripts/floreview_missing_urls.py /media/talhaaslam/Disk/datasets/FloreView ${userHome}/Data/datasets/FloreView",
+      "problemMatcher": []
+    },
+    {
+      "label": "D · FloreView: download missing videos (background)",
+      "type": "shell",
+      "command": "mkdir -p ${userHome}/Data/datasets/FloreView && cd ${userHome}/Data/datasets/FloreView && nohup wget -c -x -nH --cut-dirs=2 -i ${workspaceFolder}/data/metadata/floreview_missing_urls.txt -o wget.log > /dev/null 2>&1 & echo 'Download started in the background. Check progress with task: D2'",
+      "problemMatcher": []
+    },
+    {
+      "label": "D2 · FloreView: download progress",
+      "type": "shell",
+      "command": "tail -2 ${userHome}/Data/datasets/FloreView/wget.log; echo; ls ${userHome}/Data/datasets/FloreView | wc -l; du -sh ${userHome}/Data/datasets/FloreView",
+      "problemMatcher": []
+    },
+    {
+      "label": "1 · Inventory (ffprobe every video)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python scripts/01_inventory.py",
+      "problemMatcher": []
+    },
+    {
+      "label": "2 · Splits",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python scripts/02_splits.py",
+      "problemMatcher": []
+    },
+    {
+      "label": "3 · I-frame extraction",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python scripts/03_extract_frames.py",
+      "problemMatcher": []
+    },
+    {
+      "label": "4 · PRNU baseline (VISION)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python scripts/04_prnu_baseline.py --datasets VISION",
+      "problemMatcher": []
+    },
+    {
+      "label": "4 · PRNU baseline (ACID)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python scripts/04_prnu_baseline.py --datasets ACID",
+      "problemMatcher": []
+    },
+    {
+      "label": "5 · Attacks (manipulated class)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python scripts/05_attacks.py",
+      "problemMatcher": []
+    },
+    {
+      "label": "6 · Synthetic class",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python scripts/06_synthetic.py",
+      "problemMatcher": []
+    },
+    {
+      "label": "7 · Features (PRNU, residual, FFT, TSNCS)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python scripts/07_features.py --workers 12",
+      "problemMatcher": []
+    },
+    {
+      "label": "7b · Noiseprint++ features (GPU)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python scripts/07b_noiseprint.py",
+      "problemMatcher": []
+    },
+    {
+      "label": "8-9 · All models + evaluation",
+      "type": "shell",
+      "command": "./scripts/run_models.sh",
+      "problemMatcher": []
+    },
+    {
+      "label": "9 · Evaluation only (rebuild results tables)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python scripts/09_evaluate.py",
+      "problemMatcher": []
+    }
+  ]
+}
