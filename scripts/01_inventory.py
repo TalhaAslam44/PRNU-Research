@@ -20,7 +20,7 @@ from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from hvpf.config import load_config
-from hvpf.datasets import scan_acid_extracted, scan_vision
+from hvpf.datasets import scan_acid_extracted, scan_floreview, scan_vision
 from hvpf.media import probe
 
 COLUMNS = [
@@ -96,8 +96,16 @@ def main():
     print(f"VISION: {len(rows)} videos ({len(unparsed)} unparsed: {unparsed[:5]})")
     if not args.no_acid and paths["acid_root"].exists():
         acid = scan_acid_extracted(paths["acid_root"])
-        print(f"ACID (extracted on disk): {len(acid)} videos")
-        rows += acid
+        # only the videos the pipeline uses are probed: the first `acid.videos_per_device`
+        # per device (probing all ~11k extracted videos would read ~175 GB)
+        keep = cfg["acid"]["videos_per_device"]
+        per_dev = {}
+        for r in sorted(acid, key=lambda r: r["content_id"]):
+            per_dev.setdefault(r["device"], []).append(r)
+        used = [r for rs in per_dev.values() for r in rs[:keep]]
+        print(f"ACID (extracted on disk): {len(acid)} videos in {len(per_dev)} devices; "
+              f"probing the first {keep} per device = {len(used)}")
+        rows += used
     acid_streamed = paths["metadata_dir"] / "inventory_acid.csv"
     if not args.no_acid and acid_streamed.exists():
         streamed = pd.read_csv(acid_streamed)
@@ -105,7 +113,9 @@ def main():
     else:
         streamed = None
     if paths["floreview_root"].exists():
-        print("FloreView folder found but its parser is not written yet - skipping")
+        fv = scan_floreview(paths["floreview_root"])
+        print(f"FloreView: {len(fv)} videos in {len({r['device'] for r in fv})} devices")
+        rows += fv
 
     if args.limit:
         rows = rows[: args.limit]

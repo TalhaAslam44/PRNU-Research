@@ -63,6 +63,12 @@
       "problemMatcher": []
     },
     {
+      "label": "4 · PRNU baseline (FloreView)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python scripts/04_prnu_baseline.py --datasets FloreView",
+      "problemMatcher": []
+    },
+    {
       "label": "5 · Attacks (manipulated class)",
       "type": "shell",
       "command": "${workspaceFolder}/.venv/bin/python scripts/05_attacks.py",

@@ -99,6 +99,41 @@ def scan_acid_extracted(root):
     return rows
 
 
+FLOREVIEW_DIR_RE = re.compile(r"^(?P<dev>D\d{2})_(?P<brand>[^_]+)_(?P<model>.+)$")
+
+
+def scan_floreview(root):
+    """FloreView layout: <Dxx_Brand_Model>/<Flat|Nat>/<jpeg-h264|heic-h265>/[L*/S*/]<file>.
+
+    Some cameras recorded the same scene with both codec settings, so the codec folder is
+    part of content_id. Devices are named FV_Dxx (VISION also uses D01..D35).
+    """
+    rows = []
+    root = Path(root)
+    for p in sorted(root.glob("D[0-9][0-9]_*/*/*/**/*")):
+        if p.suffix.lower() not in VIDEO_EXTS or not p.is_file():
+            continue
+        dev_dir, kind, fmt = p.relative_to(root).parts[:3]
+        m = FLOREVIEW_DIR_RE.match(dev_dir)
+        if not m or kind not in ("Flat", "Nat"):
+            continue
+        scene = "flat" if kind == "Flat" else "natural"
+        rows.append({
+            "dataset": "FloreView",
+            "device": f"FV_{m['dev']}",
+            "brand": m["brand"],
+            "model": m["model"],
+            "model_key": dev_dir,
+            "scene": scene,
+            "scene_group": scene,
+            "motion": "unknown",
+            "version": "native",
+            "content_id": f"FV_{m['dev']}_{fmt}_{p.stem}",
+            "path": str(p),
+        })
+    return rows
+
+
 def resolve_paths(df, paths):
     """Point VISION file paths at the configured `vision_root`, so the dataset can be
     moved (e.g. to another disk) by editing config.yaml instead of re-running Step 1."""

@@ -27,7 +27,7 @@ from sklearn.metrics import roc_auc_score, roc_curve
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from hvpf.config import load_config
+from hvpf.config import is_fresh, load_config, mark_fresh
 from hvpf.prnu_utils import FingerprintBank, fingerprint
 
 
@@ -95,10 +95,11 @@ def main():
     bank_rows = []
     for (dataset, device), g in tqdm(refs.groupby(["dataset", "device"]), desc="reference K"):
         out = fp_dir / dataset / f"{device}.npy"
-        if not out.exists():
+        if not is_fresh(out, g.frames_path):          # rebuilt when the reference videos change
             frames = np.concatenate([np.load(p) for p in g.frames_path])
             out.parent.mkdir(parents=True, exist_ok=True)
             np.save(out, fingerprint(frames, processes=args.workers))
+            mark_fresh(out, g.frames_path)
         bank_rows.append({"dataset": dataset, "device": device, "k_path": str(out),
                           "n_ref_videos": len(g), "n_ref_frames": int(g.n_saved.sum())})
     bank_df = pd.DataFrame(bank_rows)

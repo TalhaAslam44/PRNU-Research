@@ -84,7 +84,7 @@ def main():
 
     samples = build_samples(paths)
     refs = {}
-    for dataset in ("VISION", "ACID"):
+    for dataset in ("VISION", "ACID", "FloreView"):
         for p in sorted((paths["fingerprints_dir"] / dataset).glob("*.npy")):
             refs[p.stem] = p
     samples = samples[samples.claimed_device.isin(refs.keys())]

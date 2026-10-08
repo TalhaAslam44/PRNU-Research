@@ -27,7 +27,7 @@ from scipy.stats import kurtosis
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from hvpf.config import load_config
+from hvpf.config import is_fresh, load_config, mark_fresh
 from hvpf.features import fft_stats
 from hvpf.noiseprint import load_model, noiseprint_maps
 
@@ -59,10 +59,11 @@ def reference_spectra(paths, net, dev, spectra, out_dir, per_device=100):
     specs = {}
     for device, g in tqdm(refs.groupby("device"), desc="reference spectra"):
         f = out_dir / f"{device}.npy"
-        if not f.exists():
+        if not is_fresh(f, g.frames_path):            # rebuilt when the reference videos change
             fr = np.concatenate([np.load(p) for p in g.frames_path])
             fr = fr[np.linspace(0, len(fr) - 1, min(per_device, len(fr))).astype(int)]
             np.save(f, spectra(noiseprint_maps(net, dev, fr)))
+            mark_fresh(f, g.frames_path)
         specs[device] = np.load(f)
     common = np.mean(list(specs.values()), axis=0)
     return {d: s - common for d, s in specs.items()}, common

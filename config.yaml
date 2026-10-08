@@ -29,9 +29,10 @@ inventory:
   workers: 8
 
 acid:
-  # Archives are streamed (scripts/01b_acid_stage.py); only this many videos per
-  # device are kept. The first `splits.acid_reference_videos` of them estimate K.
-  videos_per_device: 40
+  # All archives are now extracted under acid_root; Step 1 inventories the first
+  # `videos_per_device` per device (sorted by id). The first `splits.acid_reference_videos`
+  # of them estimate K, the rest are samples. (Phase 1 streamed 40 per device.)
+  videos_per_device: 200
   eval_videos_per_device: 0     # the train archives already hold enough per device
   # Empirical: median matching PCE0 < 5 in the Step 4 ACID baseline (attribution <= 35%),
   # i.e. no usable video PRNU - typically electronic stabilization (Pixel 1/2, iPhone 8 Plus,
@@ -54,7 +55,7 @@ splits:
     oneplusa3003: oneplusa3000
   # ACID has no flat videos: the first N videos of each device are reference-only
   # (used to estimate K), the rest are samples.
-  acid_reference_videos: 20      # ACID clips are ~6 s (~6 I-frames): 20 videos ~ 120 frames per K
+  acid_reference_videos: 100     # ACID clips are ~6 s (~6 I-frames): 100 videos ~ 600 frames per K
 
 frames:
   max_iframes: 30   # evenly spaced over all I-frames of the video
