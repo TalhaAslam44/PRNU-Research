@@ -9,6 +9,12 @@
   "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
   "tasks": [
     {
+      "label": "STAGE 1 · run everything (inventory, splits, frames, fingerprints)",
+      "type": "shell",
+      "command": "./scripts/run_stage1.sh",
+      "problemMatcher": []
+    },
+    {
       "label": "0 · Check environment (GPU, ffmpeg, data disk)",
       "type": "shell",
       "command": "nvidia-smi --query-gpu=name --format=csv,noheader; ffmpeg -version | head -1; findmnt -no TARGET /media/talhaaslam/Disk || echo 'DATA DISK NOT MOUNTED - open Disk in the Files app'; ${workspaceFolder}/.venv/bin/python test_environment.py",
