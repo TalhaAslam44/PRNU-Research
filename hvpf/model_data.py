@@ -5,6 +5,8 @@ is computed from the first `window` frames only: per-frame features are re-aggre
 here and the clip-fingerprint scores are the `w_*` ones (first `window` frames).
 Clip length is never a feature.
 """
+import re
+
 import numpy as np
 import pandas as pd
 
@@ -39,6 +41,16 @@ def load(feat_dir, window, suffix=""):
     if np_frames.exists():
         frames = frames.merge(pd.read_parquet(np_frames), on=["sample_id", "frame"], how="left")
         samples = samples.merge(pd.read_parquet(np_videos).drop(columns=["label", "variant"]), on="sample_id", how="left")
+    # clip-level features exist per window (w5_*, w10_*, np_spec_*_w5 ...): keep this window's
+    # under window-free names (w_*, np_spec_*) and drop the others
+    rename = {}
+    for c in samples.columns:
+        if m := re.fullmatch(rf"w{window}_(.+)", c):
+            rename[c] = f"w_{m.group(1)}"
+        elif m := re.fullmatch(rf"(np_spec_.+)_w{window}", c):
+            rename[c] = m.group(1)
+    other = [c for c in samples.columns if c not in rename and (re.fullmatch(r"w\d+_.+", c) or re.fullmatch(r"np_spec_.+_w\d+", c))]
+    samples = samples.drop(columns=other).rename(columns=rename)
     frames = frames[frames.frame < window].sort_values(["sample_id", "frame"])
     groups = {g: [c for c in cols if c in frames] for g, cols in FRAME_GROUPS.items()}
 
@@ -82,7 +94,7 @@ def protocol_mask(per_video, protocol):
     """realistic: everything; controlled: only libx264 clips (reencode controls, attacks, synthetic)."""
     if protocol == "realistic":
         return np.ones(len(per_video), bool)
-    return (per_video.source.isin(["VISION-attack", "GenVidBench", "GenBuster"])).to_numpy()
+    return (per_video.source.isin(["VISION-attack", "ACID-attack", "GenVidBench", "GenBuster"])).to_numpy()
 
 
 def split_masks(per_video, scheme):

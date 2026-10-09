@@ -75,7 +75,16 @@ attacks:
   crf: 20
   preset: medium
   keep_videos: false        # true keeps the attacked mp4 next to its frames
-  workers: 4
+  workers: 6
+  # Phase 2: extra genuine re-encodes (label organic) so the organic class is not only 400 x264 clips
+  crf_controls: [18, 23, 28]
+  acid_targets_per_device: 12     # ACID sample videos per device that get the re-encode controls
+  # Platform-like re-compression, measured on VISION's own WhatsApp / YouTube copies
+  # (rescaling, bits per pixel, H.264 profile); keyframe interval stays 1 s for every class.
+  social:
+    wa: {profile: baseline, bpp: 0.110, short_side: 480}
+    yt: {profile: high, bpp: 0.068, short_side: null}
+  social_variants: [reencode, removal_a0.5, removal_opt, injection_a0.5, denoise_a2]
 
 
 synthetic:
@@ -91,6 +100,8 @@ synthetic:
   crossdataset_videos_per_generator: 150
   clip_seconds: 30          # encoded like the attacks: libx264, one I-frame per second
   min_frames: 2             # TSNCS needs a pair; OpenSora clips are 2 s -> 2 I-frames
+  social: [wa, yt]          # platform-like copies of every synthetic clip (see attacks.social)
 
 features:
-  window: 5        # w_* features use the first 5 frames: synthetic/ACID clips have ~5-10
+  window: 5        # default model window: synthetic/ACID clips have ~5-10 I-frames
+  windows: [5, 10] # Step 7/7b compute clip features for each window (w5_*, w10_*)

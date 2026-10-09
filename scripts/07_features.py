@@ -9,8 +9,8 @@ Samples:
 For each sample (see hvpf/features.py):
     per frame  PRNU NCC / zero-shift PCE with the claimed camera (W vs I*K), residual
                std / skew / kurtosis, FFT statistics, TSNCS (NCC of consecutive residuals)
-    per video  the clip's MLE fingerprint from all frames (v_*) and from the first
-               `features.window` frames (w_*), scored against the claimed camera and
+    per video  the clip's MLE fingerprint from the first 5 and 10 frames (features.windows:
+               w5_*, w10_*), scored against the claimed camera and
                against every other known camera (max_other: a second camera's PRNU,
                e.g. after injection), plus mean/std of the per-frame values
 
@@ -59,11 +59,11 @@ def _scores(k_query, claimed, prefix):
 def process(sample):
     frames = np.load(sample["frames_path"])
     claimed = sample["claimed_device"]
-    rows, (rp, nn), (rp_w, nn_w) = clip_features(frames, _BANK.ks[_BANK.names.index(claimed)], _CFG["window"])
+    rows, sums = clip_features(frames, _BANK.ks[_BANK.names.index(claimed)], _CFG["windows"])
     per_frame = pd.DataFrame(rows).assign(sample_id=sample["sample_id"])
-    video = {"sample_id": sample["sample_id"], "n_frames": len(frames),
-             **_scores(finish_fingerprint(rp, nn), claimed, "v"),
-             **_scores(finish_fingerprint(rp_w, nn_w), claimed, "w")}
+    video = {"sample_id": sample["sample_id"], "n_frames": len(frames)}
+    for win, (rp, nn) in sums.items():           # clip fingerprint of the first `win` frames
+        video.update(_scores(finish_fingerprint(rp, nn), claimed, f"w{win}"))
     for col in per_frame.columns.drop(["frame", "sample_id"]):
         video[f"{col}_mean"] = float(per_frame[col].mean())
         video[f"{col}_std"] = float(per_frame[col].std())
@@ -74,7 +74,7 @@ def process(sample):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, help="samples per label (quick check)")
-    ap.add_argument("--workers", type=int, default=12)
+    ap.add_argument("--workers", type=int, default=14)
     args = ap.parse_args()
 
     cfg = load_config()
@@ -106,8 +106,8 @@ def main():
     frames_df.to_parquet(out / f"frames{suffix}.parquet", index=False)
     videos_df.to_parquet(out / f"videos{suffix}.parquet", index=False)
     print(f"\n{len(videos_df)} samples, {len(frames_df)} frames -> {out}")
-    cols = ["v_pce0_claimed", "v_pce0_max_other", "tsncs_mean", "res_std_mean", "fft_flatness_mean"]
-    print(videos_df.groupby(["label", "variant"])[cols].median().round(3).to_string())
+    cols = ["w5_pce0_claimed", "w10_pce0_claimed", "w5_pce0_max_other", "tsncs_mean", "res_std_mean"]
+    print(videos_df.groupby(["label", "source", "social"])[cols].median().round(3).to_string())
 
 
 if __name__ == "__main__":

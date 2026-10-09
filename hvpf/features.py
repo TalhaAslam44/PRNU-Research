@@ -2,7 +2,7 @@
 
 Each frame is denoised once (prnu.noise_extract); the raw residual feeds the
 clip's MLE fingerprint and the whitened residual W (as in prnu.extract_single)
-feeds the per-frame statistics.
+feeds the per-frame statistics. Only the first max(windows) frames are used.
 """
 import numpy as np
 from numpy.fft import fft2
@@ -56,16 +56,17 @@ def fft_stats(w):
     }
 
 
-def clip_features(frames, k_claimed, window):
-    """Per-frame feature dicts and the clip's raw fingerprint sums (all frames and first `window`).
+def clip_features(frames, k_claimed, windows):
+    """Per-frame feature dicts for the first max(windows) frames, and the clip's raw
+    fingerprint sums after each window: {w: (rp, nn)} (clips shorter than w use all frames).
 
-    Returns (rows, (rp, nn), (rp_w, nn_w)): rows hold PRNU, residual, FFT and TSNCS values per frame.
+    rows hold PRNU, residual, FFT and TSNCS values per frame.
     """
     h, w_ = frames.shape[1:]
     rp = np.zeros((h, w_), np.float32)
     nn = np.zeros((h, w_), np.float32)
-    rows, prev, win = [], None, None
-    for i, f in enumerate(frames):
+    rows, prev, sums = [], None, {}
+    for i, f in enumerate(frames[: max(windows)]):
         f3 = np.ascontiguousarray(f)[..., None]
         w_raw = prnu.noise_extract(f3)
         rp += w_raw * (f / 255.0)
@@ -73,7 +74,7 @@ def clip_features(frames, k_claimed, window):
         w = prnu.zero_mean_total(w_raw.copy())
         w = prnu.wiener_dft(w, w.std(ddof=1)).astype(np.float32)
         ik = f.astype(np.float32) * k_claimed
-        row = {
+        rows.append({
             "frame": i,
             "prnu_ncc": _ncc(w, ik),
             "prnu_pce0": _pce0(ik, w),
@@ -82,14 +83,13 @@ def clip_features(frames, k_claimed, window):
             "res_kurt": float(kurtosis(w_raw, axis=None)),
             "tsncs": _ncc(w, prev) if prev is not None else np.nan,
             **fft_stats(w),
-        }
-        rows.append(row)
+        })
         prev = w
-        if i + 1 == window:
-            win = (rp.copy(), nn.copy())
-    if win is None:
-        win = (rp.copy(), nn.copy())
-    return rows, (rp, nn), win
+        if i + 1 in windows:
+            sums[i + 1] = (rp.copy(), nn.copy())
+    for win in windows:
+        sums.setdefault(win, (rp.copy(), nn.copy()))
+    return rows, sums
 
 
 def finish_fingerprint(rp, nn):

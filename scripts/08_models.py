@@ -1,7 +1,7 @@
 """Step 8 - models: organic / manipulated / synthetic.
 
-    baseline     conventional PCE rule on the claimed camera (binary: organic if PCE0 > 60);
-                 `w_` uses the first `window` frames like the models, `v_` all frames
+    baseline     conventional PCE rule on the claimed camera (binary: organic if PCE0 > 60),
+                 on the same first `window` frames as the models
     svm, xgb     classical ML on clip-level features
     gru, cnn, transformer
                  temporal models on per-frame sequences (first `window` frames) whose pooled
@@ -150,16 +150,18 @@ def main():
     ap.add_argument("--models", nargs="*", default=["baseline", "svm", "xgb", "gru", "cnn", "transformer"])
     ap.add_argument("--drop", nargs="*", default=[], help="feature groups to leave out (ablation)")
     ap.add_argument("--check", action="store_true", help="use the *_check feature files")
+    ap.add_argument("--window", type=int, help="frames per clip (default: features.window); one of features.windows")
     args = ap.parse_args()
 
     cfg = load_config()
-    paths, window = cfg["paths"], cfg["features"]["window"]
+    paths = cfg["paths"]
+    window = args.window or cfg["features"]["window"]
     per_video, frames = load(paths["data_dir"] / "features", window, "_check" if args.check else "")
     per_video = per_video[protocol_mask(per_video, args.protocol)].reset_index(drop=True)
     groups = [g for g in FRAME_GROUPS if g not in args.drop]
     vcols, fcols = feature_columns(per_video, groups), frame_columns(frames, groups)
     y = per_video.label.map(CLASSES.index).to_numpy()
-    tag = "all" if not args.drop else "no_" + "_".join(sorted(args.drop))
+    tag = ("all" if not args.drop else "no_" + "_".join(sorted(args.drop))) + f"_w{window}"
     print(f"{args.protocol}/{args.scheme}/{tag}: {len(per_video)} samples, {len(vcols)} clip features, "
           f"{len(fcols)} frame features; classes {np.bincount(y, minlength=3).tolist()}")
 
@@ -167,11 +169,11 @@ def main():
     for name, tr, va, te in split_masks(per_video, args.scheme):
         cross = (per_video.split == "crossdataset").to_numpy() if args.scheme == "fixed" else np.zeros(len(y), bool)
         evaluate = te | cross
-        meta = per_video.loc[evaluate, ["sample_id", "label", "source", "variant", "alpha", "stabilized",
+        meta = per_video.loc[evaluate, ["sample_id", "label", "source", "variant", "social", "alpha", "stabilized",
                                         "claimed_device"]].assign(split_name=name, part=np.where(cross[evaluate], "crossdataset", "test"))
         if "baseline" in args.models:
-            for col in ("w_pce0_claimed", "v_pce0_claimed"):
-                out_rows.append(meta.assign(model=f"baseline_{col[0]}", score_organic=per_video.loc[evaluate, col].to_numpy(),
+            for col in ("w_pce0_claimed",):
+                out_rows.append(meta.assign(model="baseline", score_organic=per_video.loc[evaluate, col].to_numpy(),
                                             threshold=float(slog(60.0))))
         imp = SimpleImputer(strategy="median").fit(per_video.loc[tr, vcols])
         sc = StandardScaler().fit(imp.transform(per_video.loc[tr, vcols]))

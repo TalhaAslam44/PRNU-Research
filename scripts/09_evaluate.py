@@ -99,9 +99,10 @@ def main():
             summary.append({"protocol": protocol, "scheme": scheme, "tag": tag, "model": model, "part": part,
                             "split_name": split_name, **metrics(g)})
             g = g.assign(correct=correct(g), alpha=g.alpha.fillna(0))
-            for keys, h in g.groupby(["label", "variant", "alpha", "stabilized"], dropna=False):
+            vkeys = [k for k in ("label", "source", "variant", "social", "alpha", "stabilized") if k in g]
+            for keys, h in g.groupby(vkeys, dropna=False):
                 variants.append({"protocol": protocol, "scheme": scheme, "tag": tag, "model": model, "part": part,
-                                 "split_name": split_name, **dict(zip(["label", "variant", "alpha", "stabilized"], keys)),
+                                 "split_name": split_name, **dict(zip(vkeys, keys)),
                                  "n": len(h), "detection_rate": h.correct.mean()})
 
     summary = pd.DataFrame(summary)
@@ -112,18 +113,20 @@ def main():
     table.columns = [f"{a}_{b}" for a, b in table.columns]
     table = table.reset_index()
     table.to_csv(out_dir / "summary.csv", index=False)
-    var = variants.groupby(keys + ["label", "variant", "alpha", "stabilized"], dropna=False).agg(
+    vkeys = [k for k in ("label", "source", "variant", "social", "alpha", "stabilized") if k in variants]
+    var = variants.groupby(keys + vkeys, dropna=False).agg(
         n=("n", "sum"), detection_rate=("detection_rate", "mean")).reset_index()
     var.to_csv(out_dir / "per_variant.csv", index=False)
 
-    # ablation: all vs no_<group>, same protocol/scheme/model/part
-    full = table[table.tag == "all"].set_index(["protocol", "scheme", "model", "part"])
+    # ablation: no_<group>_w<N> vs all_w<N>, same protocol/scheme/model/part
+    full = table[table.tag.str.startswith("all")].set_index(["protocol", "scheme", "tag", "model", "part"])
     abl = []
-    for _, r in table[table.tag != "all"].iterrows():
-        k = (r.protocol, r.scheme, r.model, r.part)
+    for _, r in table[table.tag.str.startswith("no_")].iterrows():
+        dropped, win = r.tag.removeprefix("no_").rsplit("_", 1)
+        k = (r.protocol, r.scheme, f"all_{win}", r.model, r.part)
         if k in full.index and "f1_mean" in r and pd.notna(r.f1_mean):
-            abl.append({"protocol": r.protocol, "scheme": r.scheme, "model": r.model, "part": r.part,
-                        "dropped": r.tag.removeprefix("no_"), "pva": r.pva_mean, "pva_drop": full.loc[k, "pva_mean"] - r.pva_mean,
+            abl.append({"protocol": r.protocol, "scheme": r.scheme, "window": win, "model": r.model, "part": r.part,
+                        "dropped": dropped, "pva": r.pva_mean, "pva_drop": full.loc[k, "pva_mean"] - r.pva_mean,
                         "f1": r.f1_mean, "f1_drop": full.loc[k, "f1_mean"] - r.f1_mean,
                         "bin_auc_drop": full.loc[k, "bin_auc_mean"] - r.bin_auc_mean})
     ablation = pd.DataFrame(abl)
@@ -132,8 +135,8 @@ def main():
     cols = ["n_mean", "pva_mean", "pva_std", "f1_mean", "f1_std", "auc_ovr_mean", "bin_auc_mean", "bin_eer_mean",
             "bin_f1_mean"]
     lines = ["# HVPF results", ""]
-    for (protocol, scheme, part), t in table[table.tag == "all"].groupby(["protocol", "scheme", "part"]):
-        lines += [f"## {protocol} / {scheme} / {part}", "", t.set_index("model")[[c for c in cols if c in t]].round(3).to_markdown(), ""]
+    for (protocol, scheme, tag, part), t in table[table.tag.str.startswith("all")].groupby(["protocol", "scheme", "tag", "part"]):
+        lines += [f"## {protocol} / {scheme} / {tag.removeprefix('all_')} / {part}", "", t.set_index("model")[[c for c in cols if c in t]].round(3).to_markdown(), ""]
     if len(ablation):
         lines += ["## Ablation (drop in macro F1 / PVA when a feature group is removed)", "",
                   ablation.round(3).to_markdown(index=False), ""]

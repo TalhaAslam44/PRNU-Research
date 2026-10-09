@@ -2,7 +2,7 @@
 
 Run third_party/get_noiseprintpp.sh once, and Step 7 first (it writes data/features/samples.csv).
 
-Only the first `features.window` frames of each clip are used, like the model inputs.
+Only the first max(features.windows) frames of each clip are used, like the model inputs.
 Per frame, the Noiseprint++ map gets content-independent statistics: std, kurtosis and
 the FFT statistics of Step 7 (flatness, high-frequency share, peak ratio, periodic peaks,
 8-px block energy), prefixed `np_`. Per video: their mean/std, plus the spectral similarity
@@ -82,7 +82,7 @@ def main():
     if args.limit:
         samples = pd.concat(g.sample(min(args.limit, len(g)), random_state=0) for _, g in samples.groupby("label"))
 
-    window = cfg["features"]["window"]   # the models only use the first `window` frames
+    windows = cfg["features"]["windows"]   # the models only use the first 5 or 10 frames
     net, dev = load_model()
     spectra = Spectra(cfg["frames"]["crop"])
     refs, common = reference_spectra(paths, net, dev, spectra, paths["fingerprints_dir"] / "noiseprint")
@@ -91,17 +91,19 @@ def main():
 
     frame_parts, video_rows = [], []
     for s in tqdm(samples.itertuples(), total=len(samples), desc="noiseprint"):
-        maps = noiseprint_maps(net, dev, np.load(s.frames_path)[:window])
+        maps = noiseprint_maps(net, dev, np.load(s.frames_path)[: max(windows)])
         rows = [{"frame": i, "np_std": float(m.std()), "np_kurt": float(kurtosis(m, axis=None)),
                  **{f"np_{k.removeprefix('fft_')}": v for k, v in fft_stats(m).items()}}
                 for i, m in enumerate(maps)]
         per_frame = pd.DataFrame(rows).assign(sample_id=s.sample_id)
         frame_parts.append(per_frame)
-        spec = spectra(maps) - common
-        sims = np.array([_ncc(spec, b) for b in bank])
         i = names.index(s.claimed_device)
-        video = {"sample_id": s.sample_id, "np_spec_ncc_claimed": float(sims[i]),
-                 "np_spec_ncc_max_other": float(np.delete(sims, i).max())}
+        video = {"sample_id": s.sample_id}
+        for win in windows:                       # spectral similarity of the first `win` maps
+            spec = spectra(maps[:win]) - common
+            sims = np.array([_ncc(spec, b) for b in bank])
+            video[f"np_spec_ncc_claimed_w{win}"] = float(sims[i])
+            video[f"np_spec_ncc_max_other_w{win}"] = float(np.delete(sims, i).max())
         for col in per_frame.columns.drop(["frame", "sample_id"]):
             video[f"{col}_mean"] = float(per_frame[col].mean())
             video[f"{col}_std"] = float(per_frame[col].std())
@@ -111,7 +113,7 @@ def main():
     videos = samples[["sample_id", "label", "variant"]].merge(pd.DataFrame(video_rows), on="sample_id")
     videos.to_parquet(feat_dir / f"noiseprint_videos{suffix}.parquet", index=False)
     print(videos.groupby(["label", "variant"])[["np_std_mean", "np_block8_mean", "np_flatness_mean",
-                                                "np_spec_ncc_claimed"]].median().round(3).to_string())
+                                                "np_spec_ncc_claimed_w5"]].median().round(3).to_string())
 
 
 if __name__ == "__main__":

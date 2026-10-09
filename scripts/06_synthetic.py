@@ -13,6 +13,9 @@ Each synthetic clip claims a camera so the PRNU features can be computed:
   ACID devices with a reference fingerprint); split = that device's split.
 * `crossdataset` sources (GenBuster): split "crossdataset", any device.
 
+Phase 2: every clip also gets WhatsApp-/YouTube-like copies (config synthetic.social,
+parameters in attacks.social), content_id `<id>+wa` / `<id>+yt`.
+
 Frames go to data/frames/SYNTH/<generator>/<content_id>.npy and the index to
 data/metadata/synthetic.csv. Finished clips are skipped on re-runs.
 
@@ -31,7 +34,7 @@ import pandas as pd
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from hvpf.attacks import encode, read_clip
+from hvpf.attacks import encode, read_clip, social_filter, social_reencode
 from hvpf.config import load_config
 from hvpf.frames import extract_iframes
 from hvpf.media import VIDEO_EXTS, probe
@@ -85,14 +88,20 @@ def claim_devices(df, devices, n_folds, seed):
 
 
 def run_clip(r, acfg, scfg, crop, max_frames, frames_dir, tmp_dir):
-    out = frames_dir / "SYNTH" / r.generator / f"{r.content_id}.npy"
-    row = {"content_id": r.content_id, "dataset": r.dataset, "generator": r.generator, "label": "synthetic",
-           "claimed_device": r.claimed_device, "split": r.split, "fold": r.fold, "source_path": r.path,
-           "frames_path": str(out)}
-    if out.exists():
-        return {**row, "n_saved": int(np.load(out, mmap_mode="r").shape[0]), "status": "ok", "error": ""}
+    """The x264 base clip plus its platform-like copies (scfg.social); returns one row each."""
+    base_out = frames_dir / "SYNTH" / r.generator / f"{r.content_id}.npy"
+    common = {"dataset": r.dataset, "generator": r.generator, "label": "synthetic", "base_content_id": r.content_id,
+              "claimed_device": r.claimed_device, "split": r.split, "fold": r.fold, "source_path": r.path}
+    jobs = [(r.content_id, None, base_out)] + [
+        (f"{r.content_id}+{pf}", pf, base_out.with_name(f"{r.content_id}+{pf}.npy")) for pf in scfg["social"]]
+    rows = []
+    if all(out.exists() for _, _, out in jobs):
+        return [{**common, "content_id": cid, "social": pf or "none", "frames_path": str(out),
+                 "n_saved": int(np.load(out, mmap_mode="r").shape[0]), "status": "ok", "error": ""}
+                for cid, pf, out in jobs]
     info = probe(r.path)
-    row.update({k: info.get(k) for k in ("width", "height", "fps", "duration_s", "codec")})
+    common.update({k: info.get(k) for k in ("width", "height", "fps", "duration_s", "codec")})
+    tmp = tmp_dir / f"{r.content_id}.mp4"
     try:
         if not info["ok"]:
             raise RuntimeError(info["error"])
@@ -100,18 +109,35 @@ def run_clip(r, acfg, scfg, crop, max_frames, frames_dir, tmp_dir):
             raise RuntimeError(f"smaller than crop {crop}")
         y, uv = read_clip(r.path, crop, scfg["clip_seconds"])
         fps = info["fps"] if info["fps"] and info["fps"] > 0 else 30.0
-        tmp = tmp_dir / f"{r.content_id}.mp4"
-        encode(y, uv, tmp, crop, fps, acfg["crf"], acfg["preset"], max(1, round(fps)))
-        frames = extract_iframes(tmp, "format=gray", crop, max_frames)
-        tmp.unlink()
-        if len(frames) < scfg["min_frames"]:
-            raise RuntimeError(f"only {len(frames)} I-frame(s): clip too short")
-        out.parent.mkdir(parents=True, exist_ok=True)
-        np.save(out.with_suffix(".tmp.npy"), frames)
-        out.with_suffix(".tmp.npy").rename(out)
-        return {**row, "n_saved": len(frames), "status": "ok", "error": ""}
+        gop = max(1, round(fps))
+        encode(y, uv, tmp, crop, fps, acfg["crf"], acfg["preset"], gop)
+        for cid, pf, out in jobs:
+            row = {**common, "content_id": cid, "social": pf or "none", "frames_path": str(out)}
+            try:
+                if out.exists():
+                    frames = np.load(out)
+                else:
+                    if pf is None:
+                        frames = extract_iframes(tmp, "format=gray", crop, max_frames)
+                    else:
+                        stmp = tmp_dir / f"{cid}.mp4"
+                        size = social_reencode(tmp, stmp, acfg["social"][pf], min(info["width"], info["height"]),
+                                               fps, crop, gop)
+                        frames = extract_iframes(stmp, social_filter(size, crop), crop, max_frames)
+                        stmp.unlink()
+                    if len(frames) < scfg["min_frames"]:
+                        raise RuntimeError(f"only {len(frames)} I-frame(s): clip too short")
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    np.save(out.with_suffix(".tmp.npy"), frames)
+                    out.with_suffix(".tmp.npy").rename(out)
+                rows.append({**row, "n_saved": len(frames), "status": "ok", "error": ""})
+            except Exception as e:
+                rows.append({**row, "n_saved": 0, "status": "failed", "error": str(e)[-300:]})
     except Exception as e:  # keep going; failures are listed in synthetic.csv
-        return {**row, "n_saved": 0, "status": "failed", "error": str(e)[-300:]}
+        rows = [{**common, "content_id": cid, "social": pf or "none", "frames_path": str(out),
+                 "n_saved": 0, "status": "failed", "error": str(e)[-300:]} for cid, pf, out in jobs]
+    tmp.unlink(missing_ok=True)
+    return rows
 
 
 def main():
@@ -146,14 +172,14 @@ def main():
                                                    paths["frames_dir"], tmp_dir), df.itertuples()),
                          total=len(df), desc="synthetic"))
 
-    index = pd.DataFrame(rows)
+    index = pd.DataFrame([row for clip_rows in rows for row in clip_rows])
     index_path = paths["metadata_dir"] / "synthetic.csv"
     if index_path.exists():   # merge with earlier (partial) runs
         index = pd.concat([pd.read_csv(index_path), index]).drop_duplicates("content_id", keep="last")
     index.to_csv(index_path, index=False)
     ok = index[index.status == "ok"]
     print(f"\n{len(ok)} clips ok, {(index.status == 'failed').sum()} failed")
-    print(ok.groupby(["dataset", "generator", "split"]).agg(n=("content_id", "size"), frames=("n_saved", "median")).to_string())
+    print(ok.groupby(["dataset", "generator", "social", "split"]).agg(n=("content_id", "size"), frames=("n_saved", "median")).to_string())
     failed = index[index.status == "failed"]
     if len(failed):
         print(failed.groupby("generator").error.agg(lambda e: e.str[:80].value_counts().index[0]).to_string())

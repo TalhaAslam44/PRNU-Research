@@ -65,3 +65,35 @@ def encode(y_frames, uv, out_path, crop, fps, crf, preset, gop, vf=None):
     err = proc.stderr.read().decode(errors="replace")
     if proc.wait() != 0:
         raise RuntimeError(err[-500:])
+
+
+def social_reencode(src, dst, params, native_short, fps, crop, gop):
+    """Re-encode a clip the way a sharing platform does (WhatsApp- or YouTube-like).
+
+    `params` (config attacks.social.<platform>) were measured on VISION's own copies:
+    the platform's rescaling (WhatsApp: short side 480 px), bits per pixel and H.264 profile.
+    The clip is the analysis crop of a video whose native short side is `native_short`, so
+    it is scaled by the factor the platform would apply to the whole video. Returns the
+    encoded size; the caller scales frames back to `crop` (as for real platform copies).
+    The keyframe interval stays `gop` so every class is sampled the same way.
+    """
+    short = params.get("short_side")
+    scale = min(1.0, short / native_short) if short else 1.0
+    size = max(16, int(round(crop * scale / 2)) * 2)
+    kbps = params["bpp"] * size * size * fps / 1000
+    cmd = [
+        "ffmpeg", "-v", "error", "-nostdin", "-y", "-i", str(src), "-an",
+        *(["-vf", f"scale={size}:{size}:flags=bicubic"] if size != crop else []),
+        "-c:v", "libx264", "-preset", "medium", "-profile:v", params["profile"],
+        "-b:v", f"{kbps:.0f}k", "-maxrate", f"{1.5 * kbps:.0f}k", "-bufsize", f"{2 * kbps:.0f}k",
+        "-g", str(gop), "-keyint_min", str(gop), "-sc_threshold", "0", "-pix_fmt", "yuv420p", str(dst),
+    ]
+    proc = subprocess.run(cmd, capture_output=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.decode(errors="replace")[-500:])
+    return size
+
+
+def social_filter(size, crop):
+    """ffmpeg filter that brings a platform copy back to the analysis crop."""
+    return "format=gray" if size == crop else f"scale={crop}:{crop}:flags=bicubic,format=gray"
