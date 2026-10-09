@@ -145,7 +145,37 @@ are identical across classes and only genuine noise traces can separate them.
   generators, and an ablation that drops one feature group at a time (5-fold CV).
 * `scripts/run_models.sh` runs every protocol x scheme plus the ablations, then Step 9.
 
-## Results: models (Steps 8-9, 5-fold grouped CV, test folds)
+## Phase 2 results (full Video-ACID, FloreView, platform-like copies; 5-fold grouped CV)
+
+Phase 2 adds 4x more genuine ACID videos (100 references + 100 samples per camera), genuine
+re-encodes at CRF 18/20/23/28 for VISION and ACID, WhatsApp-/YouTube-like copies of re-encoded
+genuine clips, four attacks and every AI clip (parameters measured on VISION's real copies), and
+FloreView (45 cameras) as an unseen-camera test. 24,599 samples; metrics in `data/results/metrics/`,
+Phase 1 kept in `data/phase1/`.
+
+| Setup (5 frames) | Model | PVA | macro F1 | AUC (3-class) | AUC authentic vs not | EER |
+|---|---|---|---|---|---|---|
+| realistic | PCE rule | - | - | - | 0.635 | 0.401 |
+| realistic | XGBoost | **0.785** | **0.792** | **0.923** | **0.899** | **0.193** |
+| realistic | GRU | 0.774 | 0.785 | 0.917 | 0.891 | 0.205 |
+| realistic | SVM / 1D-CNN / Transformer | 0.76-0.77 | 0.77-0.78 | 0.90-0.91 | 0.87-0.88 | 0.21-0.22 |
+| encoder-controlled | XGBoost | 0.749 | 0.770 | 0.905 | 0.867 | 0.225 |
+| cross-dataset (FloreView + GenBuster, never trained on) | XGBoost | 0.580 | 0.682 | 0.837 | 0.886 | 0.207 |
+
+* **Lower than Phase 1 on purpose.** Phase 1's 99% on genuine WhatsApp videos was a shortcut (only
+  genuine videos were WhatsApp-compressed); with platform-like copies of fakes it falls to 40-60%.
+  Phase 2 is the honest benchmark. Encoder-controlled macro F1 rose from 0.70 to 0.77 thanks to the
+  extra genuine re-encodes.
+* **5 vs 10 frames.** On the full data 10 frames looks better (CNN/Transformer PVA 0.83), but sequence
+  models then learn "clip has 10+ frames -> attacked" (attacks have 30 frames, ACID/AI clips ~6).
+  Restricted to clips with >= 10 frames, 5 and 10 frames are equal (XGBoost AUC 0.831 vs 0.845, GRU
+  0.814 vs 0.817), so **5 frames is the main setting**.
+* **FloreView (RQ2/RQ3):** genuine videos of phones with usable PRNU are recognised 67-80%; phones
+  whose stabilisation removes the PRNU (1,361 of 1,716 videos) only 29-51% (PCE rule: 0%).
+* **Ablation (macro-F1 drop):** Noiseprint 0.04-0.06, PRNU 0.01-0.03, **TSNCS 0.01-0.02 for every
+  model**, FFT and residual moments ~0.
+
+## Phase 1 results: models (Steps 8-9, 5-fold grouped CV, test folds)
 
 | Protocol | Model | PVA | macro F1 | AUC (3-class) | AUC authentic vs not | EER |
 |---|---|---|---|---|---|---|
