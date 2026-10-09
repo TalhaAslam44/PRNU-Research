@@ -151,6 +151,8 @@ def main():
     ap.add_argument("--drop", nargs="*", default=[], help="feature groups to leave out (ablation)")
     ap.add_argument("--check", action="store_true", help="use the *_check feature files")
     ap.add_argument("--window", type=int, help="frames per clip (default: features.window); one of features.windows")
+    ap.add_argument("--min-frames", type=int, default=0,
+                    help="keep only clips with at least this many I-frames (length-matched 5 vs 10 comparison)")
     args = ap.parse_args()
 
     cfg = load_config()
@@ -158,10 +160,13 @@ def main():
     window = args.window or cfg["features"]["window"]
     per_video, frames = load(paths["data_dir"] / "features", window, "_check" if args.check else "")
     per_video = per_video[protocol_mask(per_video, args.protocol)].reset_index(drop=True)
+    if args.min_frames:
+        per_video = per_video[per_video.n_frames >= args.min_frames].reset_index(drop=True)
     groups = [g for g in FRAME_GROUPS if g not in args.drop]
     vcols, fcols = feature_columns(per_video, groups), frame_columns(frames, groups)
     y = per_video.label.map(CLASSES.index).to_numpy()
-    tag = ("all" if not args.drop else "no_" + "_".join(sorted(args.drop))) + f"_w{window}"
+    tag = ("all" if not args.drop else "no_" + "_".join(sorted(args.drop))) + f"_w{window}" \
+        + (f"_min{args.min_frames}" if args.min_frames else "")
     print(f"{args.protocol}/{args.scheme}/{tag}: {len(per_video)} samples, {len(vcols)} clip features, "
           f"{len(fcols)} frame features; classes {np.bincount(y, minlength=3).tolist()}")
 

@@ -106,6 +106,7 @@ def main():
     split_of = dict(zip(groups.group, groups.split))
     inv["split"] = inv.group.map(split_of).fillna("crossdataset")
     inv["fold"] = inv.group.map(dict(zip(groups.group, groups.fold))).astype("Int64")
+    inv.loc[inv.dataset == "FloreView", "fold"] = pd.NA       # test-only, never in cross-validation
     inv.loc[inv.dataset == "FloreView", "split"] = "crossdataset"
 
     role = np.where(inv.scene_group == "flat",

@@ -14,4 +14,8 @@ for protocol in realistic controlled; do
     python scripts/08_models.py --protocol $protocol --scheme folds --window 5 --drop $group
   done
 done
+# length-matched check: only clips with >= 10 I-frames, so 5 vs 10 frames is a fair comparison
+for window in 5 10; do
+  python scripts/08_models.py --protocol realistic --scheme folds --window $window --min-frames 10
+done
 python scripts/09_evaluate.py

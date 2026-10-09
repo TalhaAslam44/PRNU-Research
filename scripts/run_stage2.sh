@@ -9,7 +9,7 @@ source .venv/bin/activate
 mkdir -p data/logs
 run() { echo; echo "=== $(date '+%d %H:%M') $*"; python "$@"; }
 {
-  while pgrep -f "scripts/run_stage1.sh" > /dev/null; do sleep 30; done    # Stage 1 must finish first
+  while pgrep -f "scripts/run_stage[1].sh" > /dev/null; do sleep 30; done  # Stage 1 must finish first ([1]: never matches this line itself)
   if [ ! -d data/phase1 ]; then
     mkdir -p data/phase1
     mv data/features data/phase1/features

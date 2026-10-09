@@ -82,12 +82,15 @@ def correct(g):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true")
+    ap.add_argument("--models-dir", help="prediction files to read (default: data/results/models)")
+    ap.add_argument("--out-dir", help="where to write the metrics (default: data/results/metrics)")
     args = ap.parse_args()
     warnings.filterwarnings("ignore")
     paths = load_config()["paths"]
-    files = sorted((paths["results_dir"] / "models").glob("*_check.parquet" if args.check else "*.parquet"))
+    models_dir = Path(args.models_dir) if args.models_dir else paths["results_dir"] / "models"
+    files = sorted(models_dir.glob("*_check.parquet" if args.check else "*.parquet"))
     files = [f for f in files if args.check or not f.stem.endswith("_check")]
-    out_dir = paths["results_dir"] / "metrics"
+    out_dir = Path(args.out_dir) if args.out_dir else paths["results_dir"] / "metrics"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     summary, variants = [], []

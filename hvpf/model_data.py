@@ -65,6 +65,9 @@ def load(feat_dir, window, suffix=""):
     # Step 7's all-frame averages share these names: the window versions replace them
     samples = samples.drop(columns=[c for c in per_video.columns if c in samples])
     per_video = samples.set_index("sample_id").join(per_video, how="inner").reset_index()
+    # cross-dataset samples never enter cross-validation (a FloreView camera may share its
+    # model - and through it a fold - with a VISION/ACID camera)
+    per_video.loc[per_video.split == "crossdataset", "fold"] = np.nan
     for c in per_video.columns:
         if any(k in c for k in SIGNED_LOG) and per_video[c].dtype.kind == "f":
             per_video[c] = slog(per_video[c])
