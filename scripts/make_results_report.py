@@ -179,6 +179,38 @@ def main():
     p1pred = with_correct(pd.read_parquet(p1dir / "models" / "realistic_folds_all.parquet"))
     wa_p1 = p1pred[(p1pred.model == best.model) & (p1pred.variant == "whatsapp")].correct.mean()
 
+    # ---- comparison with the base papers
+    from sklearn.metrics import roc_curve
+    camid = {}
+    for ds in ("VISION", "ACID", "FloreView"):
+        sc = pd.read_parquet(res / "prnu_baseline" / ds / "scores.parquet")
+        sc = sc[sc.version == "native"]
+        qq = sc.loc[sc.groupby("query").pce0.idxmax()]
+        ok = qq.candidate == qq.device
+        tr, fa = sc[sc.is_match], sc[~sc.is_match]
+        fpr_c, tpr_c, _ = roc_curve(sc.is_match, sc.pce0)
+        i = np.nanargmin(np.abs(fpr_c - (1 - tpr_c)))
+        camid[ds] = {"dev": sc.candidate.nunique(), "acc": ok.mean(), "fnr": (tr.pce0 <= 60).mean(),
+                     "fpr": (fa.pce0 > 60).mean(), "eer": (fpr_c[i] + 1 - tpr_c[i]) / 2}
+        if ds == "VISION":
+            nst = ~qq.stabilized
+            camid["VISION_nostab"] = {"dev": qq[nst].device.nunique(), "acc": ok[nst].mean()}
+    inj = pred[pred.variant.str.startswith("injection")].copy()
+    def accepted(g):
+        if g.model.iloc[0] == "baseline":
+            return g.score_organic > g.threshold
+        return pd.Series(g[[f"p_{c}" for c in CLASSES]].to_numpy().argmax(1) == 0, index=g.index)
+    inj["passed"] = pd.concat([accepted(g) for _, g in inj.groupby("model")])
+    comp_rate = inj.pivot_table(index="model", columns="variant", values="passed", aggfunc="mean")
+    comp_rate["all"] = inj.groupby("model").passed.mean()
+    inj_cols = ["injection_a0.25", "injection_a0.5", "injection_a1", "injection_a0.5+wa", "injection_a0.5+yt", "all"]
+    lowfpr = {}
+    for m, g in pred.groupby("model"):
+        y = (g.label != "organic").astype(int).to_numpy()
+        score = -g.score_organic.to_numpy() if m == "baseline" else 1 - g.p_organic.to_numpy()
+        fpr_c, tpr_c, _ = roc_curve(y, score)
+        lowfpr[m] = [np.interp(f, fpr_c, tpr_c) for f in (0.01, 0.05, 0.10)]
+
     # =============================== document
     w(r"""\documentclass[11pt,a4paper]{article}
 \usepackage[T1]{fontenc}\usepackage{lmodern}\usepackage[margin=2.2cm]{geometry}\usepackage{microtype}
@@ -309,6 +341,66 @@ All numbers are generated directly from the result files.
     L.extend(t7)
     w(r"\bottomrule\end{tabular}\end{table}")
 
+    w(r"\section{Comparison with the base papers}")
+    w("The base papers solve related but different tasks, so each is compared on its own terms. "
+      "Literature values are taken from the papers as reported; protocols differ (noted per table).")
+    w(r"\subsection{Camera identification: PDC-ViT (Elharrouss et al.~2025)}")
+    w("PDC-ViT is a learned camera-identification model (80/20 train-test split, every camera seen in training). "
+      "The closest component of HVPF is the training-free PRNU baseline (Step 4): fingerprints from flat videos, "
+      "tested on natural videos, closed-set over all cameras of the dataset; verification at PCE$_0>60$.")
+    v, vn, a_, fv = camid["VISION"], camid["VISION_nostab"], camid["ACID"], camid["FloreView"]
+    w(r"\begin{table}[H]\centering\small\caption{Camera identification. Accuracy = closed-set attribution; FNR/FPR = verification.}"
+      r"\setlength{\tabcolsep}{4pt}\begin{tabular}{llrrrr}\toprule Method & Dataset (cameras) & Accuracy (\%) & FNR (\%) & FPR (\%) & EER (\%) \\\midrule")
+    w(r"PDC-ViT \cite{pdcvit} & VISION (35) & 94.30 & -- & -- & -- \\")
+    w(f"HVPF PRNU & VISION (35) & {100 * v['acc']:.1f} & {100 * v['fnr']:.1f} & {100 * v['fpr']:.2f} & {100 * v['eer']:.1f} \\\\")
+    w(f"HVPF PRNU & VISION ({vn['dev']} non-stabilised) & {100 * vn['acc']:.1f} & -- & -- & -- \\\\")
+    w(r"\midrule PRNU \cite{pdcvit} & Video-ACID + WA (26) & -- & 41.9 & 3.6 & -- \\")
+    w(r"WA-PRNU \cite{pdcvit} & Video-ACID + WA (26) & -- & 28.06 & 2.8 & -- \\")
+    w(r"PDC-ViT \cite{pdcvit} & Video-ACID + WA (26) & 74.77 & 23.4 & 0.92 & -- \\")
+    w(f"HVPF PRNU & Video-ACID ({a_['dev']}) & {100 * a_['acc']:.1f} & {100 * a_['fnr']:.1f} & {100 * a_['fpr']:.2f} & {100 * a_['eer']:.1f} \\\\")
+    w(f"\\midrule HVPF PRNU & FloreView ({fv['dev']}) & {100 * fv['acc']:.1f} & {100 * fv['fnr']:.1f} & {100 * fv['fpr']:.2f} & {100 * fv['eer']:.1f} \\\\")
+    w(r"\bottomrule\end{tabular}\end{table}")
+    w("PRNU matching needs no training and is perfect on non-stabilised VISION cameras, above PDC-ViT; electronic "
+      "stabilisation is what lowers the all-camera figures. Our verification threshold is strict (FPR 0\\%), so FNR is "
+      "higher than PDC-ViT's (FPR 0.92\\%); the EER gives a threshold-free view. PDC-ViT was not tested on manipulated "
+      "or synthetic video, and no base paper uses FloreView.")
+
+    w(r"\subsection{PRNU-transfer attack: Khan et al.~2025}")
+    w("Khan et al.\\ inject a camera's PRNU into images from another camera or from AI generators and report that "
+      "85.5\\% of them pass source verification (images only). Our injection attack is the same attack on video. "
+      "The compromise rate is the share of injected clips accepted as genuine: by the PCE rule if the victim's PCE$_0$ "
+      "exceeds 60, by a model if it predicts \\emph{organic} (realistic, 5-fold, 5 frames).")
+    w(r"\begin{table}[H]\centering\small\caption{Compromise rate of PRNU injection (\%, lower is better for the defender).}"
+      r"\begin{tabular}{lrrrrrr}\toprule & \multicolumn{3}{c}{Injection strength $\alpha$} & \multicolumn{2}{c}{$\alpha$=0.5, re-shared} & \\"
+      r"\cmidrule(lr){2-4}\cmidrule(lr){5-6} Detector & 0.25 & 0.5 & 1 & WA-like & YT-like & All \\\midrule")
+    w(r"Khan et al.~2025 \cite{khan2025}, images & \multicolumn{5}{c}{--} & 85.5 \\\midrule")
+    for m in MODELS:
+        if m in comp_rate.index:
+            w(f"{NAMES[m]} & " + " & ".join(pct(comp_rate.loc[m].get(c)) for c in inj_cols) + " \\\\")
+    w(r"\bottomrule\end{tabular}\end{table}")
+    w(f"A full-strength injection fools the PCE rule in {100 * comp_rate.loc['baseline', 'injection_a1']:.0f}\\% of the clips, "
+      f"in line with Khan et al.; the best model lets through only {100 * comp_rate.loc[comp_rate.index != 'baseline', 'injection_a1'].min():.1f}\\%. "
+      "Weak injections ($\\alpha$=0.25) rarely fool PCE but are also harder for the models to spot.")
+
+    w(r"\subsection{Low false-positive operation: Bao et al.~2024}")
+    w("Bao et al.\\ detect frame deletion (a different manipulation) from inter-frame noise consistency, the idea behind "
+      "TSNCS, and stress performance at low false-positive rates; their results are given as ROC curves only. "
+      "Table~\\ref{tab:lowfpr} reports HVPF at the same kind of operating points: share of non-genuine clips detected "
+      "while at most 1, 5 or 10\\% of genuine clips are flagged.")
+    w(r"\begin{table}[H]\centering\small\caption{Detection rate of non-genuine clips at fixed false-positive rates (realistic, 5-fold, 5 frames).}\label{tab:lowfpr}"
+      r"\begin{tabular}{lrrr}\toprule Detector & FPR 1\% & FPR 5\% & FPR 10\% \\\midrule")
+    for m in MODELS:
+        if m in lowfpr:
+            w(f"{NAMES[m]} & " + " & ".join(f"{100 * x:.1f}" for x in lowfpr[m]) + " \\\\")
+    w(r"\bottomrule\end{tabular}\end{table}")
+
+    w(r"\subsection{What the base papers do not cover}\begin{itemize}")
+    w(r"\item PRNU injection and removal attacks on \emph{video}, including platform-like re-sharing (Khan et al.\ test images only).")
+    w(r"\item Camera identification under attack (PDC-ViT reports clean data only).")
+    w(r"\item FloreView as an unseen-camera test set.")
+    w(r"\item One model that separates genuine, manipulated and AI-generated video.")
+    w(r"\end{itemize}")
+
     w(r"""\section{Limitations and next steps}\begin{itemize}
 \item Phones whose electronic stabilisation removes the PRNU (most FloreView cameras) are the hardest genuine case;
       more such phones in training is the most promising improvement.
@@ -317,6 +409,14 @@ All numbers are generated directly from the result files.
 \item Sequence models can learn the clip length; equal-length inputs (e.g.\ cyclic padding) would remove this.
 \item Sora is represented by only 51 clips; more high-quality modern generators are needed.
 \end{itemize}
+\begin{thebibliography}{9}
+\bibitem{pdcvit} O.~Elharrouss et al., ``PDC-ViT: source camera identification using pixel difference convolution and
+  vision transformer,'' \emph{Neural Computing and Applications}, 2025, doi:10.1007/s00521-025-11004-z.
+\bibitem{khan2025} Khan, Hasan, Islam, ``Spoofing camera source attribution via PRNU transfer attacks,''
+  \emph{ISC 2025}, Springer LNCS 16186, pp.~279--299, 2025.
+\bibitem{bao2024} Bao et al., ``Anti-forensics video forgery detection via noise transfer matrix,''
+  \emph{Sensors} 24(16):5341, 2024, doi:10.3390/s24165341.
+\end{thebibliography}
 \end{document}""")
 
     out = paths["data_dir"].parent / "report" / "results_phase2.tex"
