@@ -32,9 +32,11 @@ def build_samples(paths):
     if (meta / "synthetic.csv").exists():
         syn = pd.read_csv(meta / "synthetic.csv").query("status == 'ok'")
         social = syn.get("social", pd.Series("none", index=syn.index)).fillna("none")
+        inj = pd.to_numeric(syn.get("inj_alpha", pd.Series(np.nan, index=syn.index)), errors="coerce")
+        inj_tag = ["" if pd.isna(a) else f"+inj{a:g}" for a in inj]      # Khan-style injected PRNU
         syn = syn.assign(sample_id=syn.content_id, source=syn.dataset, social=social,
-                         variant=syn.generator + np.where(social == "none", "", "+" + social),
-                         alpha=np.nan, device=pd.NA, stabilized=False, source_rotation=0)
+                         variant=syn.generator + inj_tag + np.where(social == "none", "", "+" + social),
+                         alpha=inj, device=pd.NA, stabilized=False, source_rotation=0)
         parts.append(syn)
 
     df = pd.concat(parts, ignore_index=True)

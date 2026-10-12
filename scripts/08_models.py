@@ -11,8 +11,9 @@ Protocols (hvpf/model_data.protocol_mask): realistic | controlled (libx264 clips
 Schemes: fixed (train/val/test, plus GenBuster as an unseen-source test) | folds (5-fold grouped CV).
 Validation data picks hyper-parameters (SVM C, XGB depth) and early-stops the networks.
 
-Writes data/results/models/<protocol>_<scheme>_<tag>.parquet: one row per test sample and model
-with class probabilities (baseline rows carry only a score). Step 9 turns them into metrics.
+Writes data/results/models/<protocol>_<scheme>_<tag>.parquet: one row per evaluated sample and model
+with class probabilities (baseline rows carry only a score); part = test | crossdataset | val.
+Validation rows only tune calibration and ensembles (Step 8c); Step 9 turns the rest into metrics.
 
 Usage:
     python scripts/08_models.py --protocol realistic --scheme fixed
@@ -50,7 +51,7 @@ def softmax(z):
 
 def fit_svm(xtr, ytr, xva, yva):
     best = None
-    for c in (0.3, 1, 3, 10):
+    for c in (0.3, 1, 3, 10, 30):
         m = SVC(C=c, gamma="scale", class_weight="balanced").fit(xtr, ytr)
         f1 = f1_score(yva, m.predict(xva), average="macro")
         if best is None or f1 > best[0]:
@@ -61,10 +62,10 @@ def fit_svm(xtr, ytr, xva, yva):
 def fit_xgb(xtr, ytr, xva, yva):
     w = compute_class_weight("balanced", classes=np.arange(3), y=ytr)
     best = None
-    for depth in (4, 6):
-        m = XGBClassifier(n_estimators=800, learning_rate=0.05, max_depth=depth, subsample=0.8,
-                          colsample_bytree=0.8, tree_method="hist", device=DEV, eval_metric="mlogloss",
-                          early_stopping_rounds=50)
+    for depth, mcw in ((4, 1), (6, 1), (8, 1), (6, 5)):
+        m = XGBClassifier(n_estimators=1500, learning_rate=0.05, max_depth=depth, min_child_weight=mcw,
+                          subsample=0.8, colsample_bytree=0.8, tree_method="hist", device=DEV,
+                          eval_metric="mlogloss", early_stopping_rounds=60)
         m.fit(xtr, ytr, sample_weight=w[ytr], eval_set=[(xva, yva)], verbose=False)
         f1 = f1_score(yva, m.predict(xva), average="macro")
         if best is None or f1 > best[0]:
@@ -173,9 +174,10 @@ def main():
     out_rows = []
     for name, tr, va, te in split_masks(per_video, args.scheme):
         cross = (per_video.split == "crossdataset").to_numpy() if args.scheme == "fixed" else np.zeros(len(y), bool)
-        evaluate = te | cross
+        evaluate = te | cross | va          # validation predictions feed calibration / ensembles (08c)
         meta = per_video.loc[evaluate, ["sample_id", "label", "source", "variant", "social", "alpha", "stabilized",
-                                        "claimed_device"]].assign(split_name=name, part=np.where(cross[evaluate], "crossdataset", "test"))
+                                        "claimed_device"]].assign(
+            split_name=name, part=np.select([cross[evaluate], va[evaluate]], ["crossdataset", "val"], "test"))
         if "baseline" in args.models:
             for col in ("w_pce0_claimed",):
                 out_rows.append(meta.assign(model="baseline", score_organic=per_video.loc[evaluate, col].to_numpy(),

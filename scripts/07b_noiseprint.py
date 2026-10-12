@@ -72,6 +72,7 @@ def reference_spectra(paths, net, dev, spectra, out_dir, per_device=100):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, help="samples per label (quick check)")
+    ap.add_argument("--fresh", action="store_true", help="recompute every sample instead of reusing earlier results")
     args = ap.parse_args()
 
     cfg = load_config()
@@ -89,8 +90,22 @@ def main():
     names = list(refs)
     bank = np.stack([refs[d] for d in names])
 
+    # reuse results of samples whose frames and claimed camera are unchanged
+    todo, keep_v, keep_f = samples, None, None
+    if not (args.limit or args.fresh) and (feat_dir / "noiseprint_videos.parquet").exists():
+        old_v = pd.read_parquet(feat_dir / "noiseprint_videos.parquet")
+        old_meta = pd.read_csv(feat_dir / "noiseprint_samples.csv") if (feat_dir / "noiseprint_samples.csv").exists() else None
+        if old_meta is not None:
+            same = old_meta.merge(samples[["sample_id", "claimed_device", "frames_path"]],
+                                  on=["sample_id", "claimed_device", "frames_path"])
+            done = set(same.sample_id) & set(old_v.sample_id)
+            keep_v = old_v[old_v.sample_id.isin(done)].drop(columns=["label", "variant"], errors="ignore")
+            keep_f = pd.read_parquet(feat_dir / "noiseprint_frames.parquet").query("sample_id in @done")
+            todo = samples[~samples.sample_id.isin(done)]
+            print(f"reusing Noiseprint results of {len(done)} samples, computing {len(todo)}")
+
     frame_parts, video_rows = [], []
-    for s in tqdm(samples.itertuples(), total=len(samples), desc="noiseprint"):
+    for s in tqdm(todo.itertuples(), total=len(todo), desc="noiseprint"):
         maps = noiseprint_maps(net, dev, np.load(s.frames_path)[: max(windows)])
         rows = [{"frame": i, "np_std": float(m.std()), "np_kurt": float(kurtosis(m, axis=None)),
                  **{f"np_{k.removeprefix('fft_')}": v for k, v in fft_stats(m).items()}}
@@ -109,8 +124,10 @@ def main():
             video[f"{col}_std"] = float(per_frame[col].std())
         video_rows.append(video)
 
-    pd.concat(frame_parts, ignore_index=True).to_parquet(feat_dir / f"noiseprint_frames{suffix}.parquet", index=False)
-    videos = samples[["sample_id", "label", "variant"]].merge(pd.DataFrame(video_rows), on="sample_id")
+    pd.concat([keep_f, *frame_parts], ignore_index=True).to_parquet(feat_dir / f"noiseprint_frames{suffix}.parquet", index=False)
+    videos = samples[["sample_id", "label", "variant"]].merge(
+        pd.concat([keep_v, pd.DataFrame(video_rows)], ignore_index=True), on="sample_id")
+    samples[["sample_id", "claimed_device", "frames_path"]].to_csv(feat_dir / f"noiseprint_samples{suffix}.csv", index=False)
     videos.to_parquet(feat_dir / f"noiseprint_videos{suffix}.parquet", index=False)
     print(videos.groupby(["label", "variant"])[["np_std_mean", "np_block8_mean", "np_flatness_mean",
                                                 "np_spec_ncc_claimed_w5"]].median().round(3).to_string())

@@ -14,7 +14,9 @@ Each synthetic clip claims a camera so the PRNU features can be computed:
 * `crossdataset` sources (GenBuster): split "crossdataset", any device.
 
 Phase 2: every clip also gets WhatsApp-/YouTube-like copies (config synthetic.social,
-parameters in attacks.social), content_id `<id>+wa` / `<id>+yt`.
+parameters in attacks.social), content_id `<id>+wa` / `<id>+yt`, and Khan-style PRNU-transfer
+copies (synthetic.inject_alphas): the claimed camera's fingerprint, estimated by the attacker
+from that camera's natural videos, injected into the AI clip (`<id>+inj<alpha>`).
 
 Frames go to data/frames/SYNTH/<generator>/<content_id>.npy and the index to
 data/metadata/synthetic.csv. Finished clips are skipped on re-runs.
@@ -34,10 +36,11 @@ import pandas as pd
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from hvpf.attacks import encode, read_clip, social_filter, social_reencode
+from hvpf.attacks import attacker_fingerprint, encode, prnu_frames, read_clip, social_filter, social_reencode
 from hvpf.config import load_config
 from hvpf.frames import extract_iframes
 from hvpf.media import VIDEO_EXTS, probe
+from hvpf.prnu_utils import fingerprint
 
 
 def scan_sources(scfg):
@@ -87,18 +90,57 @@ def claim_devices(df, devices, n_folds, seed):
     return df
 
 
-def run_clip(r, acfg, scfg, crop, max_frames, frames_dir, tmp_dir):
+def attacker_keys(videos, frames, devices, out_dir, workers, per_device=30):
+    """Attacker's fingerprint of every claimable camera (Khan-style PRNU transfer): from the
+    camera's natural sample videos, never from the analyst's reference videos. VISION cameras
+    reuse Step 5's `<dev>_all.npy`; ACID cameras get one from up to `per_device` sample videos."""
+    ok = frames.loc[frames.status == "ok", ["content_id", "version", "frames_path"]]
+    smp = videos[(videos.role == "sample") & (videos.version == "native")].merge(ok, on=["content_id", "version"])
+    ks = {}
+    for dev in tqdm(devices.device, desc="attacker K"):
+        out = out_dir / f"{dev}_all.npy"
+        if not out.exists():
+            paths = smp[smp.device == dev].sort_values("content_id").frames_path.head(per_device)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            np.save(out, fingerprint(np.concatenate([np.load(p) for p in paths]), processes=workers))
+        ks[dev] = attacker_fingerprint(np.load(out))
+    return ks
+
+
+def injection_victims(df, devices, videos, cfg):
+    """Camera each injected copy impersonates: the clip's claimed camera if its video PRNU is
+    usable, else a usable camera of the same fold (same split preferred). An attacker copies a
+    fingerprint that exists; stabilised VISION cameras and PRNU-weak ACID cameras have none."""
+    stab = set(videos[videos.stabilized.astype(bool)].device)
+    usable = devices[~devices.device.isin(stab | set(cfg["acid"]["prnu_weak_devices"]))]
+    out = []
+    for r in df.itertuples():
+        if r.claimed_device in set(usable.device):
+            out.append(r.claimed_device)
+            continue
+        cand = usable if pd.isna(r.fold) else usable[usable.fold == r.fold]
+        same = cand[cand.split == r.split]
+        cand = same if len(same) else cand
+        rng = np.random.default_rng(zlib.crc32(r.content_id.encode()))
+        out.append(cand.iloc[rng.integers(len(cand))].device)
+    return out
+
+
+def run_clip(r, acfg, scfg, crop, max_frames, frames_dir, tmp_dir, ks):
     """The x264 base clip plus its platform-like copies (scfg.social); returns one row each."""
     base_out = frames_dir / "SYNTH" / r.generator / f"{r.content_id}.npy"
     common = {"dataset": r.dataset, "generator": r.generator, "label": "synthetic", "base_content_id": r.content_id,
               "claimed_device": r.claimed_device, "split": r.split, "fold": r.fold, "source_path": r.path}
-    jobs = [(r.content_id, None, base_out)] + [
-        (f"{r.content_id}+{pf}", pf, base_out.with_name(f"{r.content_id}+{pf}.npy")) for pf in scfg["social"]]
+    jobs = [(r.content_id, None, base_out, None)] + [
+        (f"{r.content_id}+{pf}", pf, base_out.with_name(f"{r.content_id}+{pf}.npy"), None) for pf in scfg["social"]] + [
+        (f"{r.content_id}+inj{a:g}", None, base_out.with_name(f"{r.content_id}+inj{a:g}.npy"), float(a))
+        for a in scfg.get("inject_alphas", [])]
     rows = []
-    if all(out.exists() for _, _, out in jobs):
-        return [{**common, "content_id": cid, "social": pf or "none", "frames_path": str(out),
+    if all(out.exists() for _, _, out, _ in jobs):
+        return [{**common, "content_id": cid, "social": pf or "none", "inj_alpha": inj, "frames_path": str(out),
+                 **({"claimed_device": r.inj_victim} if inj is not None else {}),
                  "n_saved": int(np.load(out, mmap_mode="r").shape[0]), "status": "ok", "error": ""}
-                for cid, pf, out in jobs]
+                for cid, pf, out, inj in jobs]
     info = probe(r.path)
     common.update({k: info.get(k) for k in ("width", "height", "fps", "duration_s", "codec")})
     tmp = tmp_dir / f"{r.content_id}.mp4"
@@ -111,13 +153,22 @@ def run_clip(r, acfg, scfg, crop, max_frames, frames_dir, tmp_dir):
         fps = info["fps"] if info["fps"] and info["fps"] > 0 else 30.0
         gop = max(1, round(fps))
         encode(y, uv, tmp, crop, fps, acfg["crf"], acfg["preset"], gop)
-        for cid, pf, out in jobs:
-            row = {**common, "content_id": cid, "social": pf or "none", "frames_path": str(out)}
+        for cid, pf, out, inj in jobs:
+            row = {**common, "content_id": cid, "social": pf or "none", "inj_alpha": inj, "frames_path": str(out)}
+            if inj is not None:
+                row["claimed_device"] = r.inj_victim
             try:
                 if out.exists():
                     frames = np.load(out)
                 else:
-                    if pf is None:
+                    if inj is not None:
+                        # Khan-style transfer: the claimed camera's PRNU injected into the AI clip
+                        itmp = tmp_dir / f"{cid}.mp4"
+                        encode(prnu_frames(y, ks[r.inj_victim], inj, +1), uv, itmp, crop, fps,
+                               acfg["crf"], acfg["preset"], gop)
+                        frames = extract_iframes(itmp, "format=gray", crop, max_frames)
+                        itmp.unlink()
+                    elif pf is None:
                         frames = extract_iframes(tmp, "format=gray", crop, max_frames)
                     else:
                         stmp = tmp_dir / f"{cid}.mp4"
@@ -134,8 +185,8 @@ def run_clip(r, acfg, scfg, crop, max_frames, frames_dir, tmp_dir):
             except Exception as e:
                 rows.append({**row, "n_saved": 0, "status": "failed", "error": str(e)[-300:]})
     except Exception as e:  # keep going; failures are listed in synthetic.csv
-        rows = [{**common, "content_id": cid, "social": pf or "none", "frames_path": str(out),
-                 "n_saved": 0, "status": "failed", "error": str(e)[-300:]} for cid, pf, out in jobs]
+        rows = [{**common, "content_id": cid, "social": pf or "none", "inj_alpha": inj, "frames_path": str(out),
+                 **({"claimed_device": r.inj_victim} if inj is not None else {}), "n_saved": 0, "status": "failed", "error": str(e)[-300:]} for cid, pf, out, inj in jobs]
     tmp.unlink(missing_ok=True)
     return rows
 
@@ -160,6 +211,9 @@ def main():
     files = scan_sources(scfg)
     print(files.groupby(["dataset", "generator"]).size().to_string())
     df = claim_devices(sample_per_generator(files, scfg, seed), devices, cfg["splits"]["n_folds"], seed)
+    ks = attacker_keys(videos, frames, devices, paths["fingerprints_dir"] / "attacker", fcfg["workers"]) \
+        if scfg.get("inject_alphas") else {}
+    df["inj_victim"] = injection_victims(df, devices, videos, cfg)
     if args.generators:
         df = df[df.generator.isin(args.generators)]
     if args.limit:
@@ -169,7 +223,7 @@ def main():
     tmp_dir.mkdir(parents=True, exist_ok=True)
     with ThreadPoolExecutor(acfg["workers"]) as ex:
         rows = list(tqdm(ex.map(lambda r: run_clip(r, acfg, scfg, fcfg["crop"], fcfg["max_iframes"],
-                                                   paths["frames_dir"], tmp_dir), df.itertuples()),
+                                                   paths["frames_dir"], tmp_dir, ks), df.itertuples()),
                          total=len(df), desc="synthetic"))
 
     index = pd.DataFrame([row for clip_rows in rows for row in clip_rows])

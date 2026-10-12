@@ -98,6 +98,7 @@ def main():
         protocol, scheme, *tag = f.stem.removesuffix("_check").split("_", 2)
         tag = tag[0] if tag else "all"
         pred = pd.read_parquet(f)
+        pred = pred[pred.part != "val"]          # validation predictions only tune calibration / ensembles
         for (model, part, split_name), g in pred.groupby(["model", "part", "split_name"]):
             summary.append({"protocol": protocol, "scheme": scheme, "tag": tag, "model": model, "part": part,
                             "split_name": split_name, **metrics(g)})

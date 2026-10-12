@@ -101,6 +101,7 @@ synthetic:
   clip_seconds: 30          # encoded like the attacks: libx264, one I-frame per second
   min_frames: 2             # TSNCS needs a pair; OpenSora clips are 2 s -> 2 I-frames
   social: [wa, yt]          # platform-like copies of every synthetic clip (see attacks.social)
+  inject_alphas: [0.5, 1.0] # Khan-style: claimed camera's PRNU injected into the AI clip (x 1% PRNU)
 
 features:
   window: 5        # default model window: synthetic/ACID clips have ~5-10 I-frames

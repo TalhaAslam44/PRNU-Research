@@ -125,4 +125,11 @@ def sequences(frames, sample_ids, cols, window):
     pos = sub.frame.to_numpy()
     x[rows, pos] = np.nan_to_num(sub[cols].to_numpy(np.float32))
     mask[rows, pos] = True
+    # equal-length inputs: a clip shorter than the window repeats its own frames cyclically,
+    # so a sequence model cannot use the clip length (number of I-frames) as a shortcut
+    n = mask.sum(1)
+    for i in np.flatnonzero((n > 0) & (n < window)):
+        k = n[i]
+        x[i, k:] = x[i, np.arange(k, window) % k]
+        mask[i] = True
     return x, mask

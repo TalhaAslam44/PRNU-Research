@@ -99,15 +99,33 @@
       "problemMatcher": []
     },
     {
-      "label": "8-9 · All models + evaluation",
+      "label": "8-9 · All models + ViT + ensembles + evaluation (long)",
       "type": "shell",
       "command": "./scripts/run_models.sh",
+      "problemMatcher": []
+    },
+    {
+      "label": "8b · Vision Transformer only (GPU, ~3 h)",
+      "type": "shell",
+      "command": "for p in realistic controlled; do for s in fixed folds; do ${workspaceFolder}/.venv/bin/python scripts/08b_vit.py --protocol $p --scheme $s || exit 1; done; done",
+      "problemMatcher": []
+    },
+    {
+      "label": "8c · Calibration + ensembles (after 8 and 8b)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python scripts/08c_ensemble.py",
       "problemMatcher": []
     },
     {
       "label": "9 · Evaluation only (rebuild results tables)",
       "type": "shell",
       "command": "${workspaceFolder}/.venv/bin/python scripts/09_evaluate.py",
+      "problemMatcher": []
+    },
+    {
+      "label": "R · Results report PDF",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python scripts/make_results_report.py && ~/.local/bin/tectonic -X compile report/results_phase2.tex",
       "problemMatcher": []
     }
   ]

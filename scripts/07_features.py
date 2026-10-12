@@ -33,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from hvpf.config import load_config
 from hvpf.features import clip_features, finish_fingerprint
 from hvpf.prnu_utils import FingerprintBank
-from hvpf.samples import build_samples
+from hvpf.samples import SAMPLE_COLS, build_samples
 
 _BANK = None
 _CFG = None
@@ -75,6 +75,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, help="samples per label (quick check)")
     ap.add_argument("--workers", type=int, default=14)
+    ap.add_argument("--fresh", action="store_true", help="recompute every sample instead of reusing features.parquet")
     args = ap.parse_args()
 
     cfg = load_config()
@@ -94,15 +95,27 @@ def main():
     samples.to_csv(out / f"samples{suffix}.csv", index=False)
     print(samples.groupby(["label", "source"]).size().to_string())
 
+    # reuse features of samples whose frames and claimed camera are unchanged
+    todo, keep_v, keep_f = samples, None, None
+    if not (args.limit or args.fresh) and (out / "videos.parquet").exists() and (out / "frames.parquet").exists():
+        old_v = pd.read_parquet(out / "videos.parquet")
+        same = old_v.merge(samples[["sample_id", "claimed_device", "frames_path"]],
+                           on=["sample_id", "claimed_device", "frames_path"])
+        done = set(same.sample_id)
+        keep_v = old_v[old_v.sample_id.isin(done)].drop(columns=[c for c in SAMPLE_COLS if c != "sample_id"], errors="ignore")
+        keep_f = pd.read_parquet(out / "frames.parquet").query("sample_id in @done")
+        todo = samples[~samples.sample_id.isin(done)]
+        print(f"reusing features of {len(done)} samples, computing {len(todo)}")
+
     frame_parts, video_rows = [], []
     with Pool(args.workers, initializer=_init, initargs=(pd.Series(refs).map(str), cfg["features"])) as pool:
-        for per_frame, video in tqdm(pool.imap_unordered(process, samples.to_dict("records"), chunksize=4),
-                                     total=len(samples), desc="features"):
+        for per_frame, video in tqdm(pool.imap_unordered(process, todo.to_dict("records"), chunksize=4),
+                                     total=len(todo), desc="features"):
             frame_parts.append(per_frame)
             video_rows.append(video)
 
-    frames_df = pd.concat(frame_parts, ignore_index=True)
-    videos_df = samples.merge(pd.DataFrame(video_rows), on="sample_id")
+    frames_df = pd.concat([keep_f, *frame_parts], ignore_index=True)
+    videos_df = samples.merge(pd.concat([keep_v, pd.DataFrame(video_rows)], ignore_index=True), on="sample_id")
     frames_df.to_parquet(out / f"frames{suffix}.parquet", index=False)
     videos_df.to_parquet(out / f"videos{suffix}.parquet", index=False)
     print(f"\n{len(videos_df)} samples, {len(frames_df)} frames -> {out}")
