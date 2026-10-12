@@ -31,6 +31,8 @@ All other settings are in `config.yaml` too. Run every script from the project r
 | 6 Synthetic class | `scripts/06_synthetic.py` | `data/frames/SYNTH/`, `data/metadata/synthetic.csv` | done: 1,492 clips (892 GenVidBench, 600 GenBuster) |
 | 7 Features | `scripts/07_features.py` | `data/features/{samples.csv,frames.parquet,videos.parquet}` | done: 8,031 samples (`scripts/07b_noiseprint.py` for Noiseprint, GPU) |
 | 8 Models | `scripts/08_models.py`, `scripts/run_models.sh` | `data/results/models/*.parquet` | done: 14 configurations |
+| 8b Vision Transformer | `scripts/08b_vit.py` (GPU) | `data/results/models/vit/*.parquet` | Phase 3 |
+| 8c Calibration + ensembles | `scripts/08c_ensemble.py` | adds `vit`, `*+cal`, `ens_*`, `stack` rows to the Step 8 files | Phase 3 |
 | 9 Evaluation | `scripts/09_evaluate.py` | `data/results/metrics/{summary,per_variant,ablation}.csv`, `results.md` | done |
 
 Every script can be re-run; finished work (frames, fingerprints, ACID archives) is skipped.
@@ -105,6 +107,13 @@ Check on D01 / D08 (PCE0 with the analyst's reference, own device / victim):
   short clips was rejected because closer frames inflate TSNCS (a false "synthetic" cue).
 * Each clip claims a random camera (VISION or ACID) of a random fold; its split follows that camera.
   GenBuster's real clips are not used (no camera reference).
+* **Khan-style PRNU transfer (Phase 3, `synthetic.inject_alphas`):** each AI clip also gets copies with
+  a real camera's PRNU injected (alpha 0.5 and 1, same units as Step 5). The attacker's fingerprint
+  comes from the camera's own natural sample videos (`data/fingerprints/attacker/`), never from the
+  analyst's reference videos. If the claimed camera has no usable video PRNU (stabilised VISION
+  cameras, `acid.prnu_weak_devices`), a usable camera of the same fold is impersonated instead, and
+  that copy claims it. Check: a Sora clip injected with M29_DA's PRNU reaches PCE0 376 / 1398
+  (alpha 0.5 / 1) with that camera.
 * Archives are stored on the second partition (`/media/talhaaslam/Disk/datasets/synthetic`),
   re-downloadable with its `download.sh`.
 
@@ -143,7 +152,20 @@ are identical across classes and only genuine noise traces can separate them.
   authentic-vs-not AUC and EER (where the PCE rule is compared), per-variant detection rates for RQ2
   (native/YouTube/WhatsApp, attack type and alpha, generator, stabilization), GenBuster as unseen
   generators, and an ablation that drops one feature group at a time (5-fold CV).
-* `scripts/run_models.sh` runs every protocol x scheme plus the ablations, then Step 9.
+* Short clips repeat their own frames up to the window (equal-length inputs), so the sequence
+  models cannot use the number of I-frames as a shortcut (Phase 3).
+* Step 8 also writes validation predictions (`part = val`); Step 9 ignores them.
+* **Step 8b, Vision Transformer:** pretrained ViT-S/16 (timm `vit_small_patch16_224.augreg_in21k_ft_in1k`)
+  fine-tuned on three SRM high-pass residuals of single I-frames (random 224x224 crops, flips, AdamW,
+  mixed precision, class-balanced loss, early stopping on validation macro F1); a clip's prediction
+  averages its first 5 frames x 4 crops.
+* **Step 8c, calibration + ensembles:** `+cal` = class offsets on the log-probabilities tuned on the
+  split's validation predictions; `ens_ml` (SVM+XGB), `ens_seq` (GRU+CNN+Transformer), `ens_all`
+  (every learned model), `ens_top3` (best 3 on validation) = mean class probability; `stack` =
+  logistic regression on all models' validation outputs. Validation cameras never overlap test cameras.
+* `scripts/run_models.sh` runs every protocol x scheme plus the ablations, the ViT, Step 8c and Step 9
+  (`SKIP_VIT=1` leaves out the ViT). `scripts/run_phase3.sh` runs Steps 7, 7b, 8 + 8b (in parallel on
+  the GPU), 8c and 9 in one go, with logs in `data/logs/`.
 
 ## Phase 2 results (full Video-ACID, FloreView, platform-like copies; 5-fold grouped CV)
 
