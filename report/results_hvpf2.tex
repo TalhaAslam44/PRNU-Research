@@ -1,0 +1,119 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[T1]{fontenc}\usepackage{lmodern}\usepackage[margin=2.2cm]{geometry}\usepackage{microtype}
+\usepackage{booktabs}\usepackage{array}\usepackage{float}\usepackage{caption}\usepackage{enumitem}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+\captionsetup{font=small,labelfont=bf}\setlist{itemsep=2pt,topsep=4pt}\setlength{\emergencystretch}{3em}
+\title{\textbf{HVPF-2: 80/20 Training and Trained Source Camera Identification}}
+\author{Talha Aslam\\ MS Thesis}
+\date{14 October 2026}
+\begin{document}\maketitle
+\begin{abstract}\noindent
+HVPF-2 is a copy of the HVPF pipeline with two changes. (1) The provenance models (organic /
+manipulated / synthetic) are trained on 80\% of the camera models and tested on 20\%, instead of
+60/20/20; they are compared with the Phase 3 models on the same test sets. (2) Source camera
+identification is also learned: a Vision Transformer is trained to name the camera of a video
+(80/20 split of each camera's recordings) and compared with training-free PRNU matching and with
+PDC-ViT. Data, features and frames are identical to Phase 3.
+\end{abstract}
+\section*{Key findings}\begin{itemize}
+\item \textbf{80/20 vs 60/20/20:} on the same test folds, single models gain +0.000 to +0.011 macro F1 (mean +0.006); the best model, stacking, stays at 0.850 (60/20/20: 0.851). The gains are smaller than the fold-to-fold spread (std 0.015): more training cameras help a little, not decisively. On unseen sources (FloreView + GenBuster, fixed split) stacking reaches 0.893 (0.863).
+\item \textbf{Trained camera identification:} the ViT names the camera of 90.6\% (Video-ACID) and 92.7\% (FloreView) of the test videos, against 58.4\% and 26.8\% for PRNU matching; on VISION it reaches only 47.7\% (PRNU 58.0\%).
+\item \textbf{Stabilised phones:} where PRNU fails (10.7\% on Video-ACID, 8.5\% on FloreView), the ViT still identifies 90.7\% and 91.1\%. For these phones the sensor pattern is unusable, so the ViT must rely on other traces of the camera, such as its image processing, stabilisation and encoder settings.
+\item \textbf{Model vs device:} on Video-ACID the ViT finds the right camera \emph{model} for 99.6\% of the videos but the right device for 90.6\%: devices of the same model are what it confuses. Telling those apart is exactly what PRNU does when it is available.
+\item \textbf{Hybrid:} using PRNU when it is confident and the ViT otherwise gives the best accuracy on every dataset: 66.9\% (VISION), 95.0\% (Video-ACID), 93.8\% (FloreView); PDC-ViT reports 94.3\% and 74.77\% on VISION and Video-ACID.
+\item \textbf{Why VISION is hard for the ViT:} about 30 training videos per camera, a split that keeps each scene on one side, and test videos that include WhatsApp and YouTube copies. Video-ACID has about 160 training videos per camera, and ACID and FloreView have no scene labels, so their splits are less strict (see Notes).
+\end{itemize}
+\section{Provenance models: 80/20 vs 60/20/20}
+Both versions use the same camera-model groups. In 5-fold cross-validation, fold $f$ is the test set in both; 60/20/20 trains on three folds and uses fold $f{+}1$ for validation, while 80/20 trains on all four other folds. To keep model selection honest, 80/20 still uses fold $f{+}1$ to choose settings (SVM $C$, XGBoost depth and number of trees, the networks' number of epochs; calibration and stacking weights), then retrains on all four folds with those settings. The fixed split merges the old train and validation camera models (82\% of the models) and keeps the same test models.
+\begin{table}[H]\centering\small\caption{Realistic setup, 5-fold cross-validation (main result), 5 frames: 60/20/20 (Phase 3) vs 80/20 (HVPF-2).}\begin{tabular}{lccccccc}\toprule & \multicolumn{3}{c}{Macro F1} & \multicolumn{2}{c}{PVA} & \multicolumn{2}{c}{AUC genuine vs not} \\\cmidrule(lr){2-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}Model & 60/20/20 & 80/20 & change & 60/20/20 & 80/20 & 60/20/20 & 80/20 \\\midrule
+PCE rule & -- & -- & -- & -- & -- & 0.549 & 0.549 \\
+SVM & 0.769 & 0.780 & +0.011 & 0.765 & 0.775 & 0.884 & 0.889 \\
+XGBoost & 0.794 & 0.799 & +0.005 & 0.791 & 0.794 & 0.913 & 0.915 \\
+GRU & 0.779 & 0.782 & +0.003 & 0.773 & 0.778 & 0.906 & 0.908 \\
+1D-CNN & 0.774 & 0.782 & +0.007 & 0.768 & 0.775 & 0.895 & 0.904 \\
+Transformer & 0.780 & 0.780 & +0.000 & 0.770 & 0.771 & 0.902 & 0.906 \\
+ViT (residual) & 0.820 & 0.827 & +0.007 & 0.806 & 0.814 & 0.912 & 0.916 \\
+Ens.\ all & 0.814 & 0.818 & +0.003 & 0.807 & 0.811 & 0.927 & 0.929 \\
+Ens.\ top-3 (val) & 0.827 & 0.827 & +0.001 & 0.818 & 0.820 & 0.932 & 0.935 \\
+Stacking (LR) & 0.851 & 0.850 & -0.001 & 0.836 & 0.838 & 0.941 & 0.941 \\
+\bottomrule\end{tabular}\end{table}
+\begin{table}[H]\centering\small\caption{Encoder-controlled setup, 5-fold cross-validation, 5 frames: 60/20/20 (Phase 3) vs 80/20 (HVPF-2).}\begin{tabular}{lccccccc}\toprule & \multicolumn{3}{c}{Macro F1} & \multicolumn{2}{c}{PVA} & \multicolumn{2}{c}{AUC genuine vs not} \\\cmidrule(lr){2-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}Model & 60/20/20 & 80/20 & change & 60/20/20 & 80/20 & 60/20/20 & 80/20 \\\midrule
+PCE rule & -- & -- & -- & -- & -- & 0.513 & 0.513 \\
+SVM & 0.751 & 0.757 & +0.005 & 0.743 & 0.748 & 0.860 & 0.865 \\
+XGBoost & 0.768 & 0.774 & +0.005 & 0.759 & 0.763 & 0.886 & 0.889 \\
+GRU & 0.756 & 0.767 & +0.011 & 0.748 & 0.758 & 0.876 & 0.884 \\
+1D-CNN & 0.758 & 0.761 & +0.004 & 0.748 & 0.753 & 0.872 & 0.878 \\
+Transformer & 0.756 & 0.756 & -0.001 & 0.748 & 0.746 & 0.872 & 0.872 \\
+ViT (residual) & 0.763 & 0.773 & +0.010 & 0.753 & 0.763 & 0.856 & 0.863 \\
+Ens.\ all & 0.785 & 0.792 & +0.006 & 0.776 & 0.782 & 0.898 & 0.901 \\
+Ens.\ top-3 (val) & 0.789 & 0.794 & +0.005 & 0.780 & 0.783 & 0.897 & 0.900 \\
+Stacking (LR) & 0.816 & 0.818 & +0.002 & 0.805 & 0.807 & 0.906 & 0.909 \\
+\bottomrule\end{tabular}\end{table}
+\begin{table}[H]\centering\small\caption{Realistic setup, fixed split, test cameras, 5 frames: 60/20/20 (Phase 3) vs 80/20 (HVPF-2).}\begin{tabular}{lccccccc}\toprule & \multicolumn{3}{c}{Macro F1} & \multicolumn{2}{c}{PVA} & \multicolumn{2}{c}{AUC genuine vs not} \\\cmidrule(lr){2-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}Model & 60/20/20 & 80/20 & change & 60/20/20 & 80/20 & 60/20/20 & 80/20 \\\midrule
+PCE rule & -- & -- & -- & -- & -- & 0.467 & 0.467 \\
+SVM & 0.793 & 0.796 & +0.003 & 0.796 & 0.800 & 0.898 & 0.904 \\
+XGBoost & 0.806 & 0.811 & +0.005 & 0.814 & 0.818 & 0.936 & 0.940 \\
+GRU & 0.800 & 0.801 & +0.001 & 0.797 & 0.805 & 0.933 & 0.933 \\
+1D-CNN & 0.801 & 0.807 & +0.006 & 0.801 & 0.804 & 0.930 & 0.930 \\
+Transformer & 0.793 & 0.767 & -0.026 & 0.789 & 0.779 & 0.927 & 0.927 \\
+ViT (residual) & 0.834 & 0.849 & +0.016 & 0.828 & 0.837 & 0.931 & 0.933 \\
+Ens.\ all & 0.824 & 0.826 & +0.003 & 0.824 & 0.827 & 0.946 & 0.946 \\
+Ens.\ top-3 (val) & 0.841 & 0.836 & -0.004 & 0.839 & 0.837 & 0.951 & 0.952 \\
+Stacking (LR) & 0.866 & 0.874 & +0.007 & 0.856 & 0.861 & 0.954 & 0.954 \\
+\bottomrule\end{tabular}\end{table}
+\begin{table}[H]\centering\small\caption{Unseen sources (FloreView + GenBuster), fixed split, 5 frames: 60/20/20 (Phase 3) vs 80/20 (HVPF-2).}\begin{tabular}{lccccccc}\toprule & \multicolumn{3}{c}{Macro F1} & \multicolumn{2}{c}{PVA} & \multicolumn{2}{c}{AUC genuine vs not} \\\cmidrule(lr){2-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}Model & 60/20/20 & 80/20 & change & 60/20/20 & 80/20 & 60/20/20 & 80/20 \\\midrule
+PCE rule & -- & -- & -- & -- & -- & 0.406 & 0.406 \\
+SVM & 0.630 & 0.649 & +0.020 & 0.564 & 0.587 & 0.793 & 0.827 \\
+XGBoost & 0.728 & 0.734 & +0.005 & 0.641 & 0.651 & 0.922 & 0.931 \\
+GRU & 0.619 & 0.714 & +0.095 & 0.534 & 0.666 & 0.825 & 0.886 \\
+1D-CNN & 0.660 & 0.603 & -0.057 & 0.598 & 0.549 & 0.844 & 0.839 \\
+Transformer & 0.715 & 0.668 & -0.047 & 0.598 & 0.618 & 0.889 & 0.840 \\
+ViT (residual) & 0.842 & 0.837 & -0.005 & 0.815 & 0.808 & 0.942 & 0.956 \\
+Ens.\ all & 0.722 & 0.723 & +0.001 & 0.644 & 0.667 & 0.913 & 0.920 \\
+Ens.\ top-3 (val) & 0.776 & 0.818 & +0.041 & 0.696 & 0.756 & 0.944 & 0.961 \\
+Stacking (LR) & 0.863 & 0.893 & +0.030 & 0.818 & 0.847 & 0.965 & 0.978 \\
+\bottomrule\end{tabular}\end{table}
+\section{Source camera identification by training}
+Each camera's recordings are split 80/20: 20\% of its natural videos are test videos; all other videos, including the flat reference videos, are training videos. All versions of a recording (VISION native, YouTube and WhatsApp) stay on the same side, and VISION's moving, still and panning takes of one scene count as one recording, so a test scene is never seen in training (ACID and FloreView have no scene labels). 10\% of the recordings are held out inside the training side to choose the number of epochs; the model is then retrained on the whole 80\%. The model is the ViT-S/16 of Step 8b with one output per camera, on SRM noise residuals. \emph{PRNU} is the training-free baseline of Step 4 on the same test videos (fingerprints from the reference videos, which are never test videos). \emph{Hybrid} uses PRNU when it verifies the camera (PCE$_0>60$) and the ViT otherwise; \emph{hybrid (val)} chooses that PCE$_0$ threshold on the validation videos.
+\begin{table}[H]\centering\small\setlength{\tabcolsep}{4pt}\caption{Top-1 camera identification accuracy (\%) on the test videos. Model level: a prediction of another camera of the same model counts as correct.}\begin{tabular}{llrrrrrrr}\toprule Dataset & Test videos & Cameras & ViT & PRNU & Hybrid & Hybrid (val) & ViT model level \\\midrule
+VISION & 350 & 35 & 47.7 & 58.0 & 60.3 & 66.9 & 53.1 \\
+\quad usable PRNU & 214 & 21 & 55.6 & 84.6 & 74.8 & 84.1 & 57.9 \\
+\quad no usable PRNU & 136 & 14 & 35.3 & 16.2 & 37.5 & 39.7 & 45.6 \\
+\quad version native & 118 & 35 & 56.8 & 72.0 & 83.1 & 84.7 & 67.8 \\
+\quad version youtube & 114 & 35 & 49.1 & 61.4 & 57.0 & 67.5 & 51.8 \\
+\quad version whatsapp & 118 & 35 & 37.3 & 40.7 & 40.7 & 48.3 & 39.8 \\
+\midrule
+Video-ACID & 1756 & 44 & 90.6 & 58.4 & 94.1 & 95.0 & 99.6 \\
+\quad usable PRNU & 996 & 25 & 90.6 & 94.8 & 96.7 & 98.4 & 99.4 \\
+\quad no usable PRNU & 760 & 19 & 90.7 & 10.7 & 90.7 & 90.5 & 99.9 \\
+\midrule
+FloreView & 385 & 45 & 92.7 & 26.8 & 93.2 & 93.8 & 92.7 \\
+\quad usable PRNU & 80 & 10 & 98.8 & 96.2 & 100.0 & 100.0 & 98.8 \\
+\quad no usable PRNU & 305 & 35 & 91.1 & 8.5 & 91.5 & 92.1 & 91.1 \\
+\bottomrule\end{tabular}\end{table}
+\subsection{Comparison with PDC-ViT}
+PDC-ViT (Elharrouss et al.\ 2025) also trains a Vision Transformer with an 80/20 split; its numbers are taken from the paper (Video-ACID there includes WhatsApp copies, 26 cameras). FNR and FPR are macro averages over the cameras (one camera vs the rest).
+\begin{table}[H]\centering\small\caption{Camera identification compared with PDC-ViT.}\begin{tabular}{llrrr}\toprule Method & Dataset (cameras) & Accuracy (\%) & FNR (\%) & FPR (\%) \\\midrule
+PDC-ViT (reported) & VISION (35) & 94.30 & -- & -- \\
+PDC-ViT (reported) & Video-ACID + WA (26) & 74.77 & 23.4 & 0.92 \\\midrule
+HVPF-2 ViT & VISION (35) & 47.71 & 55.6 & 1.54 \\
+PRNU & VISION (35) & 58.00 & 44.2 & 1.24 \\
+Hybrid (val) & VISION (35) & 66.86 & 36.6 & 0.97 \\
+\midrule
+HVPF-2 ViT & Video-ACID (44) & 90.60 & 9.5 & 0.22 \\
+PRNU & Video-ACID (44) & 58.37 & 41.5 & 0.97 \\
+Hybrid (val) & Video-ACID (44) & 94.99 & 5.0 & 0.12 \\
+\midrule
+HVPF-2 ViT & FloreView (45) & 92.73 & 7.0 & 0.17 \\
+PRNU & FloreView (45) & 26.75 & 71.2 & 1.66 \\
+Hybrid (val) & FloreView (45) & 93.77 & 6.0 & 0.14 \\
+\bottomrule\end{tabular}\end{table}
+\section{Notes}\begin{itemize}
+\item The provenance test sets are identical in both versions, so the differences come only from training on 80\%
+      instead of 60\% of the camera models (and from the refit on all of it).
+\item Camera identification is closed-set: every test camera is in training. Provenance stays open-set: test camera
+      models are never seen in training.
+\item ACID and FloreView have no scene labels, so two videos of the same scene by one camera may fall on different
+      sides of the split; the SRM residual input makes scene content less useful to the model, but not useless.
+\end{itemize}
+\end{document}

@@ -67,6 +67,44 @@ identification is also learned: a Vision Transformer is trained to name the came
 PDC-ViT. Data, features and frames are identical to Phase 3.
 \end{abstract}""")
 
+    # ---------------------------------------------------------------- key findings (numbers from the files)
+    single = ["svm", "xgb", "gru", "cnn", "transformer", "vit"]
+    gain = [get(new, "realistic", "folds", "test", m, "f1_mean") - get(old, "realistic", "folds", "test", m, "f1_mean")
+            for m in single if get(new, "realistic", "folds", "test", m, "f1_mean") is not None]
+    st_old, st_new = (get(d, "realistic", "folds", "test", "stack", "f1_mean") for d in (old, new))
+    sd = get(new, "realistic", "folds", "test", "stack", "f1_std")
+    cx_old, cx_new = (get(d, "realistic", "fixed", "crossdataset", "stack", "f1_mean") for d in (old, new))
+    w(r"\section*{Key findings}\begin{itemize}")
+    if gain:
+        w(f"\\item \\textbf{{80/20 vs 60/20/20:}} on the same test folds, single models gain {min(gain):+.3f} to "
+          f"{max(gain):+.3f} macro F1 (mean {sum(gain) / len(gain):+.3f}); the best model, stacking, stays at "
+          f"{st_new:.3f} (60/20/20: {st_old:.3f}). The gains are smaller than the fold-to-fold spread "
+          f"(std {sd:.3f}): more training cameras help a little, not decisively. On unseen sources (FloreView + "
+          f"GenBuster, fixed split) stacking reaches {cx_new:.3f} ({cx_old:.3f}).")
+    if len(cam):
+        a = cam[cam.group == "all"].set_index("dataset")
+        nu = cam[cam.group == "no usable PRNU"].set_index("dataset")
+        if {"ACID", "FloreView", "VISION"} <= set(a.index):
+            w(f"\\item \\textbf{{Trained camera identification:}} the ViT names the camera of {pct(a.vit_acc['ACID'])}\\% "
+              f"(Video-ACID) and {pct(a.vit_acc['FloreView'])}\\% (FloreView) of the test videos, against "
+              f"{pct(a.prnu_acc['ACID'])}\\% and {pct(a.prnu_acc['FloreView'])}\\% for PRNU matching; on VISION it reaches "
+              f"only {pct(a.vit_acc['VISION'])}\\% (PRNU {pct(a.prnu_acc['VISION'])}\\%).")
+            w(f"\\item \\textbf{{Stabilised phones:}} where PRNU fails ({pct(nu.prnu_acc['ACID'])}\\% on Video-ACID, "
+              f"{pct(nu.prnu_acc['FloreView'])}\\% on FloreView), the ViT still identifies {pct(nu.vit_acc['ACID'])}\\% "
+              f"and {pct(nu.vit_acc['FloreView'])}\\%. For these phones the sensor pattern is unusable, so the ViT must "
+              "rely on other traces of the camera, such as its image processing, stabilisation and encoder settings.")
+            w(f"\\item \\textbf{{Model vs device:}} on Video-ACID the ViT finds the right camera \\emph{{model}} for "
+              f"{pct(a.vit_model_acc['ACID'])}\\% of the videos but the right device for {pct(a.vit_acc['ACID'])}\\%: devices of "
+              "the same model are what it confuses. Telling those apart is exactly what PRNU does when it is available.")
+            w(f"\\item \\textbf{{Hybrid:}} using PRNU when it is confident and the ViT otherwise gives the best accuracy on "
+              f"every dataset: {pct(a.hybrid_val_acc['VISION'])}\\% (VISION), {pct(a.hybrid_val_acc['ACID'])}\\% (Video-ACID), "
+              f"{pct(a.hybrid_val_acc['FloreView'])}\\% (FloreView); PDC-ViT reports 94.3\\% and 74.77\\% on VISION and Video-ACID.")
+            w("\\item \\textbf{Why VISION is hard for the ViT:} about 30 training videos per camera, a split that keeps each "
+              "scene on one side, and test videos that include WhatsApp and YouTube copies. Video-ACID has about 160 "
+              "training videos per camera, and ACID and FloreView have no scene labels, so their splits are less strict "
+              "(see Notes).")
+    w(r"\end{itemize}")
+
     # ---------------------------------------------------------------- provenance
     w(r"\section{Provenance models: 80/20 vs 60/20/20}")
     w("Both versions use the same camera-model groups. In 5-fold cross-validation, fold $f$ is the test set in both; "

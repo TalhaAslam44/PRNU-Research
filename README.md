@@ -15,6 +15,26 @@ frames (`data/frames` links to the original, read only). Two changes:
   VISION's takes of one scene stay together), ViT-S/16 on SRM residuals with one output per camera,
   compared with the PRNU baseline of Step 4 and a PRNU + ViT hybrid on the same test videos.
 
+**Results (14 Oct 2026, `report/results_hvpf2.pdf`):**
+
+| Provenance, realistic 5-fold test | 60/20/20 | 80/20 |
+|---|---|---|
+| Single models, macro F1 change | | +0.000 to +0.011 (mean +0.006) |
+| ViT | 0.820 | 0.827 |
+| Stacking (best) | 0.851 | 0.850 |
+| Stacking, unseen sources (FloreView + GenBuster) | 0.863 | 0.893 |
+
+| Camera identification, top-1 | ViT (trained) | PRNU | Hybrid (val) | PDC-ViT (reported) |
+|---|---|---|---|---|
+| VISION (35 cameras) | 47.7% | 58.0% | 66.9% | 94.3% |
+| Video-ACID (44) | 90.6% | 58.4% | 95.0% | 74.77% (26 cameras + WA) |
+| FloreView (45) | 92.7% | 26.8% | 93.8% | - |
+
+80/20 helps single models a little (less than the fold-to-fold spread). The trained ViT identifies
+stabilised phones that PRNU cannot (ACID 90.7% vs 10.7%), finds the camera model almost always
+(ACID 99.6%) but confuses devices of the same model, which PRNU separates; the hybrid is best everywhere.
+VISION is hard for the ViT (few videos per camera, scene-grouped split, WhatsApp/YouTube copies in test).
+
 Run everything: `./scripts/run_hvpf2.sh` (or VS Code task *HVPF-2 · RUN ALL*). Report:
 `report/results_hvpf2.pdf` (`scripts/make_hvpf2_report.py`), comparing with the original's Phase 3
 results (`paths.compare_results` in `config.yaml`, read only).
