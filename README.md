@@ -1,5 +1,25 @@
 # HVPF: Hybrid Video Provenance Framework
 
+## hvpf-2 (this copy): 80/20 training + trained camera identification
+
+A copy of the original project (`~/PRNU-Research`, branch `main`), kept on branch `hvpf-2`.
+Steps 1-7 are not re-run: it reuses the original's splits, features (copied to `data/`) and
+frames (`data/frames` links to the original, read only). Two changes:
+
+* **80/20 instead of 60/20/20 (Steps 8, 8b).** Same camera-model groups and test sets. Each split's
+  80% training side (fixed: old train + val models; 5-fold CV: the four folds not tested) is used
+  twice: settings are chosen on the old validation part (fold f+1), then the model is refit on the
+  whole 80%. Calibration / stacking (8c) still use the validation predictions of the tuning stage.
+* **Step 10, source camera identification by training** (`scripts/10_camera_id.py`, shared ViT code in
+  `hvpf/vit.py`): per dataset, 80/20 of each camera's recordings (versions of one recording and
+  VISION's takes of one scene stay together), ViT-S/16 on SRM residuals with one output per camera,
+  compared with the PRNU baseline of Step 4 and a PRNU + ViT hybrid on the same test videos.
+
+Run everything: `./scripts/run_hvpf2.sh` (or VS Code task *HVPF-2 · RUN ALL*). Report:
+`report/results_hvpf2.pdf` (`scripts/make_hvpf2_report.py`), comparing with the original's Phase 3
+results (`paths.compare_results` in `config.yaml`, read only).
+
+
 Thesis pipeline: separate **organic** sensor noise from **manipulated** (PRNU removal or injection)
 and **synthetic** (AI-generated) noise in videos, using PRNU + Noiseprint + FFT + TSNCS features.
 

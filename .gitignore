@@ -16,3 +16,4 @@ third_party/noiseprintpp/
 # Local backup archives
 *.zip
 *.tar.gz
+.venv

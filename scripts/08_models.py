@@ -8,8 +8,13 @@
                  output is joined with the clip-level features
 
 Protocols (hvpf/model_data.protocol_mask): realistic | controlled (libx264 clips only).
-Schemes: fixed (train/val/test, plus GenBuster as an unseen-source test) | folds (5-fold grouped CV).
-Validation data picks hyper-parameters (SVM C, XGB depth) and early-stops the networks.
+Schemes: fixed (train/val/test, plus FloreView + GenBuster as unseen sources) | folds (5-fold grouped CV).
+
+80/20 training (hvpf-2): every split has an 80% training side (fixed: train + val camera
+models; folds: the 4 folds that are not tested) and a 20% test side. The training side is used twice:
+  1. tuning: fit on the tuning part, pick settings on the validation part (SVM C, XGB depth and
+     number of trees, the networks' best epoch); validation predictions -> part = val (Step 8c)
+  2. final: refit on the whole 80% with those settings; test / crossdataset predictions -> results
 
 Writes data/results/models/<protocol>_<scheme>_<tag>.parquet: one row per evaluated sample and model
 with class probabilities (baseline rows carry only a score); part = test | crossdataset | val.
@@ -50,13 +55,19 @@ def softmax(z):
 
 
 def fit_svm(xtr, ytr, xva, yva):
+    """Best C on the validation part -> (model, prob, refit(x, y) -> prob)."""
     best = None
     for c in (0.3, 1, 3, 10, 30):
         m = SVC(C=c, gamma="scale", class_weight="balanced").fit(xtr, ytr)
         f1 = f1_score(yva, m.predict(xva), average="macro")
         if best is None or f1 > best[0]:
-            best = (f1, m)
-    return best[1], lambda x: softmax(best[1].decision_function(x))
+            best = (f1, m, c)
+    _, m, c = best
+
+    def refit(x, y):
+        final = SVC(C=c, gamma="scale", class_weight="balanced").fit(x, y)
+        return lambda z: softmax(final.decision_function(z))
+    return m, lambda x: softmax(m.decision_function(x)), refit
 
 
 def fit_xgb(xtr, ytr, xva, yva):
@@ -69,8 +80,17 @@ def fit_xgb(xtr, ytr, xva, yva):
         m.fit(xtr, ytr, sample_weight=w[ytr], eval_set=[(xva, yva)], verbose=False)
         f1 = f1_score(yva, m.predict(xva), average="macro")
         if best is None or f1 > best[0]:
-            best = (f1, m)
-    return best[1], best[1].predict_proba
+            best = (f1, m, depth, mcw)
+    _, m, depth, mcw = best
+
+    def refit(x, y):
+        wf = compute_class_weight("balanced", classes=np.arange(3), y=y)
+        final = XGBClassifier(n_estimators=m.best_iteration + 1, learning_rate=0.05, max_depth=depth,
+                              min_child_weight=mcw, subsample=0.8, colsample_bytree=0.8, tree_method="hist",
+                              device=DEV, eval_metric="mlogloss")
+        final.fit(x, y, sample_weight=wf[y], verbose=False)
+        return final.predict_proba
+    return m, m.predict_proba, refit
 
 
 class SeqNet(nn.Module):
@@ -108,8 +128,10 @@ class SeqNet(nn.Module):
         return self.head(torch.cat([pooled, v], 1))
 
 
-def fit_seq(kind, data, ytr, yva, window, epochs=80, patience=10, seed=0):
-    (str_, mtr, vtr), (sva, mva, vva) = data["train"], data["val"]
+def fit_seq(kind, data, ytr, yva, window, epochs=80, patience=10, seed=0, stop_after=None):
+    """Early stopping on data["val"]; with `stop_after`, train exactly that many epochs (refit).
+    Returns (net, predict, best_epoch)."""
+    str_, mtr, vtr = data["train"]
     torch.manual_seed(seed)
     net = SeqNet(kind, str_.shape[2], vtr.shape[1], window).to(DEV)
     opt = torch.optim.Adam(net.parameters(), lr=1e-3, weight_decay=1e-4)   # thesis: Adam, lr 0.001, L2
@@ -125,23 +147,27 @@ def fit_seq(kind, data, ytr, yva, window, epochs=80, patience=10, seed=0):
                    for i in range(0, len(s), 1024)]
         return torch.cat(out).cpu().numpy()
 
-    best, best_state, bad = -1, None, 0
-    for _ in range(epochs):
+    best, best_state, best_epoch, bad = -1, None, 0, 0
+    for epoch in range(1, (stop_after or epochs) + 1):
         net.train()
         for b in torch.randperm(len(xs), device=DEV).split(128):
             opt.zero_grad()
             loss_fn(net(xs[b], ms[b], vs[b]), ys[b]).backward()
             opt.step()
-        f1 = f1_score(yva, predict(sva, mva, vva).argmax(1), average="macro")
+        if stop_after:
+            best_epoch = epoch
+            continue
+        f1 = f1_score(yva, predict(*data["val"]).argmax(1), average="macro")
         if f1 > best:
-            best, bad = f1, 0
+            best, best_epoch, bad = f1, epoch, 0
             best_state = {k: v.detach().clone() for k, v in net.state_dict().items()}
         else:
             bad += 1
             if bad >= patience:
                 break
-    net.load_state_dict(best_state)
-    return net, predict
+    if best_state is not None:
+        net.load_state_dict(best_state)
+    return net, predict, best_epoch
 
 
 def main():
@@ -171,41 +197,54 @@ def main():
     print(f"{args.protocol}/{args.scheme}/{tag}: {len(per_video)} samples, {len(vcols)} clip features, "
           f"{len(fcols)} frame features; classes {np.bincount(y, minlength=3).tolist()}")
 
+    probs = lambda p: {f"p_{c}": p[:, i] for i, c in enumerate(CLASSES)}
+    meta_cols = ["sample_id", "label", "source", "variant", "social", "alpha", "stabilized", "claimed_device"]
+
+    def features(mask):
+        """Clip features with imputer + scaler fitted on `mask`."""
+        imp = SimpleImputer(strategy="median").fit(per_video.loc[mask, vcols])
+        sc = StandardScaler().fit(imp.transform(per_video.loc[mask, vcols]))
+        return np.nan_to_num(sc.transform(imp.transform(per_video[vcols])))
+
     out_rows = []
     for name, tr, va, te in split_masks(per_video, args.scheme):
+        full = tr | va                      # the 80% training side: tuning part + validation part
         cross = (per_video.split == "crossdataset").to_numpy() if args.scheme == "fixed" else np.zeros(len(y), bool)
-        evaluate = te | cross | va          # validation predictions feed calibration / ensembles (08c)
-        meta = per_video.loc[evaluate, ["sample_id", "label", "source", "variant", "social", "alpha", "stabilized",
-                                        "claimed_device"]].assign(
-            split_name=name, part=np.select([cross[evaluate], va[evaluate]], ["crossdataset", "val"], "test"))
+        out = te | cross
+        meta_va = per_video.loc[va, meta_cols].assign(split_name=name, part="val")
+        meta_out = per_video.loc[out, meta_cols].assign(split_name=name, part=np.where(cross[out], "crossdataset", "test"))
+        print(f"  {name}: train {full.sum()} (tuning {tr.sum()} + validation {va.sum()}), test {te.sum()}, "
+              f"crossdataset {cross.sum()}")
+
+        def add(model, p_va, p_out):        # tuning-stage validation predictions + final-model results
+            out_rows.append(meta_va.assign(model=model, **probs(p_va)))
+            out_rows.append(meta_out.assign(model=model, **probs(p_out)))
         if "baseline" in args.models:
-            for col in ("w_pce0_claimed",):
-                out_rows.append(meta.assign(model="baseline", score_organic=per_video.loc[evaluate, col].to_numpy(),
+            for meta, mask in ((meta_va, va), (meta_out, out)):
+                out_rows.append(meta.assign(model="baseline", score_organic=per_video.loc[mask, "w_pce0_claimed"].to_numpy(),
                                             threshold=float(slog(60.0))))
-        imp = SimpleImputer(strategy="median").fit(per_video.loc[tr, vcols])
-        sc = StandardScaler().fit(imp.transform(per_video.loc[tr, vcols]))
-        X = sc.transform(imp.transform(per_video[vcols]))
-        X = np.nan_to_num(X)
+        X_t, X_f = features(tr), features(full)
         for model in [m for m in args.models if m in ("svm", "xgb")]:
             t0 = time.time()
-            _, prob = (fit_svm if model == "svm" else fit_xgb)(X[tr], y[tr], X[va], y[va])
-            p = prob(X[evaluate])
-            out_rows.append(meta.assign(model=model, **{f"p_{c}": p[:, i] for i, c in enumerate(CLASSES)}))
+            _, prob, refit = (fit_svm if model == "svm" else fit_xgb)(X_t[tr], y[tr], X_t[va], y[va])
+            add(model, prob(X_t[va]), refit(X_f[full], y[full])(X_f[out]))
             print(f"  {name} {model:11s} {time.time() - t0:6.1f}s")
         seq_models = [m for m in args.models if m in ("gru", "cnn", "transformer")]
         if seq_models:
-            ids = per_video.sample_id.to_numpy()
-            S, M = sequences(frames, ids, fcols, window)
-            mu = S[tr][M[tr]].mean(0)
-            sd = S[tr][M[tr]].std(0) + 1e-6
-            S = np.where(M[..., None], (S - mu) / sd, 0).astype(np.float32)
-            data = {"train": (S[tr], M[tr], X[tr]), "val": (S[va], M[va], X[va])}
+            S0, M = sequences(frames, per_video.sample_id.to_numpy(), fcols, window)
+
+            def norm(mask):
+                mu, sd = S0[mask][M[mask]].mean(0), S0[mask][M[mask]].std(0) + 1e-6
+                return np.where(M[..., None], (S0 - mu) / sd, 0).astype(np.float32)
+            S_t, S_f = norm(tr), norm(full)
+            data_t = {"train": (S_t[tr], M[tr], X_t[tr]), "val": (S_t[va], M[va], X_t[va])}
+            data_f = {"train": (S_f[full], M[full], X_f[full])}
             for model in seq_models:
                 t0 = time.time()
-                _, predict = fit_seq(model, data, y[tr], y[va], window)
-                p = predict(S[evaluate], M[evaluate], X[evaluate])
-                out_rows.append(meta.assign(model=model, **{f"p_{c}": p[:, i] for i, c in enumerate(CLASSES)}))
-                print(f"  {name} {model:11s} {time.time() - t0:6.1f}s")
+                _, predict, best_epoch = fit_seq(model, data_t, y[tr], y[va], window)
+                _, predict_f, _ = fit_seq(model, data_f, y[full], None, window, stop_after=best_epoch)
+                add(model, predict(S_t[va], M[va], X_t[va]), predict_f(S_f[out], M[out], X_f[out]))
+                print(f"  {name} {model:11s} {time.time() - t0:6.1f}s (best epoch {best_epoch})")
 
     out_dir = paths["results_dir"] / "models"
     out_dir.mkdir(parents=True, exist_ok=True)

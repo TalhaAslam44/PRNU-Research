@@ -1,4 +1,6 @@
 # Hybrid Video Provenance Framework (HVPF) - pipeline configuration.
+# hvpf-2 copy: 80/20 training (Steps 8, 8b) and trained camera identification (Step 10);
+# Steps 1-7 are not re-run here (same splits, folds, features and frames as the original).
 # Relative paths are resolved against the project root.
 
 paths:
@@ -10,6 +12,8 @@ paths:
   frames_dir: data/frames
   fingerprints_dir: data/fingerprints
   results_dir: data/results
+  # hvpf-2: results of the original project (60/20/20, Phase 3), read only for the comparison report
+  compare_results: /home/talhaaslam/PRNU-Research/data/results
 
 vision:
   # In-camera digital stabilization. VISION's paper flags all Apple devices except

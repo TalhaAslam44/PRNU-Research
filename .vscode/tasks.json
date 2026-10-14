@@ -1,6 +1,8 @@
 {
-  // Run any step with: Ctrl+Shift+P -> "Tasks: Run Task" -> pick the step.
-  // Every task runs from the project folder with the project's .venv Python.
+  // hvpf-2 (80/20 training + trained camera identification).
+  // Run any step with: Terminal -> Run Task... (or Ctrl+Shift+P -> "Tasks: Run Task") -> pick the step.
+  // Every task runs from the hvpf-2 folder with the project's .venv Python.
+  // Steps 1-7 are not part of hvpf-2: it reuses the original project's splits, features and frames.
   "version": "2.0.0",
   "options": {
     "cwd": "${workspaceFolder}",
@@ -9,105 +11,39 @@
   "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
   "tasks": [
     {
-      "label": "STAGE 1 · run everything (inventory, splits, frames, fingerprints)",
+      "label": "HVPF-2 · RUN ALL (background, ~5-6 h)",
       "type": "shell",
-      "command": "./scripts/run_stage1.sh",
+      "command": "mkdir -p data/logs && setsid nohup ./scripts/run_hvpf2.sh > data/logs/run_hvpf2.log 2>&1 < /dev/null & echo 'hvpf-2 started in the background. You can close VS Code. Follow it with task: HVPF-2 · progress'",
       "problemMatcher": []
     },
     {
-      "label": "0 · Check environment (GPU, ffmpeg, data disk)",
+      "label": "HVPF-2 · progress",
       "type": "shell",
-      "command": "nvidia-smi --query-gpu=name --format=csv,noheader; ffmpeg -version | head -1; findmnt -no TARGET /media/talhaaslam/Disk || echo 'DATA DISK NOT MOUNTED - open Disk in the Files app'; ${workspaceFolder}/.venv/bin/python test_environment.py",
+      "command": "for f in models vit camera_id 08c_ensemble 09_evaluate report; do [ -f data/logs/$f.log ] && { echo \"== $f\"; tr '\\r' '\\n' < data/logs/$f.log | grep -v 'Warning\\|warn\\|^$' | tail -4; }; done; cat data/logs/run_hvpf2.log 2>/dev/null; pgrep -f 'run_hvpf[2].sh' > /dev/null && echo '>>> still running' || echo '>>> not running'",
       "problemMatcher": []
     },
     {
-      "label": "C · FloreView: list missing videos",
+      "label": "0 · Check environment (GPU)",
       "type": "shell",
-      "command": "${workspaceFolder}/.venv/bin/python scripts/floreview_missing_urls.py /media/talhaaslam/Disk/datasets/FloreView ${userHome}/Data/datasets/FloreView",
+      "command": "nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv,noheader; ${workspaceFolder}/.venv/bin/python test_environment.py",
       "problemMatcher": []
     },
     {
-      "label": "D · FloreView: download missing videos (background)",
+      "label": "8 · Provenance models 80/20 (all 4 setups)",
       "type": "shell",
-      "command": "mkdir -p ${userHome}/Data/datasets/FloreView && cd ${userHome}/Data/datasets/FloreView && nohup wget -c -x -nH --cut-dirs=2 -i ${workspaceFolder}/data/metadata/floreview_missing_urls.txt -o wget.log > /dev/null 2>&1 & echo 'Download started in the background. Check progress with task: D2'",
+      "command": "for p in realistic controlled; do for s in fixed folds; do ${workspaceFolder}/.venv/bin/python scripts/08_models.py --protocol $p --scheme $s || exit 1; done; done",
       "problemMatcher": []
     },
     {
-      "label": "D2 · FloreView: download progress",
-      "type": "shell",
-      "command": "tail -2 ${userHome}/Data/datasets/FloreView/wget.log; echo; ls ${userHome}/Data/datasets/FloreView | wc -l; du -sh ${userHome}/Data/datasets/FloreView",
-      "problemMatcher": []
-    },
-    {
-      "label": "1 · Inventory (ffprobe every video)",
-      "type": "shell",
-      "command": "${workspaceFolder}/.venv/bin/python scripts/01_inventory.py",
-      "problemMatcher": []
-    },
-    {
-      "label": "2 · Splits",
-      "type": "shell",
-      "command": "${workspaceFolder}/.venv/bin/python scripts/02_splits.py",
-      "problemMatcher": []
-    },
-    {
-      "label": "3 · I-frame extraction",
-      "type": "shell",
-      "command": "${workspaceFolder}/.venv/bin/python scripts/03_extract_frames.py",
-      "problemMatcher": []
-    },
-    {
-      "label": "4 · PRNU baseline (VISION)",
-      "type": "shell",
-      "command": "${workspaceFolder}/.venv/bin/python scripts/04_prnu_baseline.py --datasets VISION",
-      "problemMatcher": []
-    },
-    {
-      "label": "4 · PRNU baseline (ACID)",
-      "type": "shell",
-      "command": "${workspaceFolder}/.venv/bin/python scripts/04_prnu_baseline.py --datasets ACID",
-      "problemMatcher": []
-    },
-    {
-      "label": "4 · PRNU baseline (FloreView)",
-      "type": "shell",
-      "command": "${workspaceFolder}/.venv/bin/python scripts/04_prnu_baseline.py --datasets FloreView",
-      "problemMatcher": []
-    },
-    {
-      "label": "5 · Attacks (manipulated class)",
-      "type": "shell",
-      "command": "${workspaceFolder}/.venv/bin/python scripts/05_attacks.py",
-      "problemMatcher": []
-    },
-    {
-      "label": "6 · Synthetic class",
-      "type": "shell",
-      "command": "${workspaceFolder}/.venv/bin/python scripts/06_synthetic.py",
-      "problemMatcher": []
-    },
-    {
-      "label": "7 · Features (PRNU, residual, FFT, TSNCS)",
-      "type": "shell",
-      "command": "${workspaceFolder}/.venv/bin/python scripts/07_features.py --workers 12",
-      "problemMatcher": []
-    },
-    {
-      "label": "7b · Noiseprint++ features (GPU)",
-      "type": "shell",
-      "command": "${workspaceFolder}/.venv/bin/python scripts/07b_noiseprint.py",
-      "problemMatcher": []
-    },
-    {
-      "label": "8-9 · All models + ViT + ensembles + evaluation (long)",
-      "type": "shell",
-      "command": "./scripts/run_models.sh",
-      "problemMatcher": []
-    },
-    {
-      "label": "8b · Vision Transformer only (GPU, ~3 h)",
+      "label": "8b · Vision Transformer 80/20 (GPU, ~4 h)",
       "type": "shell",
       "command": "for p in realistic controlled; do for s in fixed folds; do ${workspaceFolder}/.venv/bin/python scripts/08b_vit.py --protocol $p --scheme $s || exit 1; done; done",
+      "problemMatcher": []
+    },
+    {
+      "label": "10 · Camera identification by training (GPU, ~1 h)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python scripts/10_camera_id.py",
       "problemMatcher": []
     },
     {
@@ -117,15 +53,15 @@
       "problemMatcher": []
     },
     {
-      "label": "9 · Evaluation only (rebuild results tables)",
+      "label": "9 · Evaluation (results tables)",
       "type": "shell",
       "command": "${workspaceFolder}/.venv/bin/python scripts/09_evaluate.py",
       "problemMatcher": []
     },
     {
-      "label": "R · Results report PDF",
+      "label": "R · hvpf-2 report PDF",
       "type": "shell",
-      "command": "${workspaceFolder}/.venv/bin/python scripts/make_results_report.py && ~/.local/bin/tectonic -X compile report/results_phase2.tex",
+      "command": "${workspaceFolder}/.venv/bin/python scripts/make_hvpf2_report.py && ~/.local/bin/tectonic -X compile report/results_hvpf2.tex",
       "problemMatcher": []
     }
   ]
