@@ -84,7 +84,9 @@ attacks:
   social:
     wa: {profile: baseline, bpp: 0.110, short_side: 480}
     yt: {profile: high, bpp: 0.068, short_side: null}
-  social_variants: [reencode, removal_a0.5, removal_opt, injection_a0.5, denoise_a2]
+  # Phase 4: the CRF 18 / 28 genuine re-encodes get platform copies too (fewer false accusations)
+  social_variants: [reencode, reencode_crf18, reencode_crf28, removal_a0.5, removal_opt, injection_a0.5, denoise_a2]
+  attack_datasets: [VISION, ACID]   # Phase 4: ACID targets get every attack as well
 
 
 synthetic:

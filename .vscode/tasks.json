@@ -99,6 +99,24 @@
       "problemMatcher": []
     },
     {
+      "label": "PHASE 4 · run (background: attacks, features, models, ViT 5+10 frames)",
+      "type": "shell",
+      "command": "mkdir -p data/logs && setsid nohup ./scripts/run_phase4.sh > data/logs/run_phase4.log 2>&1 < /dev/null & echo 'Phase 4 started in the background. Follow it with task: PHASE 4 · progress'",
+      "problemMatcher": []
+    },
+    {
+      "label": "PHASE 4 · progress",
+      "type": "shell",
+      "command": "for f in 05_attacks_phase4 05_attacks_finish 07_features 07b_noiseprint models vit vit_w10 10_camera_id 08c_ensemble 09_evaluate; do [ -f data/logs/$f.log ] && { echo \"== $f\"; tr '\\r' '\\n' < data/logs/$f.log | grep -v 'Warning\\|warn\\|^$' | tail -3; }; done; cat data/logs/run_phase4.log 2>/dev/null; pgrep -f 'run_phase[4].sh|10_camera_[i]d' > /dev/null && echo '>>> still running' || echo '>>> not running'",
+      "problemMatcher": []
+    },
+    {
+      "label": "10 · Camera identification by training (GPU, ~2 h)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python scripts/10_camera_id.py",
+      "problemMatcher": []
+    },
+    {
       "label": "8-9 · All models + ViT + ensembles + evaluation (long)",
       "type": "shell",
       "command": "./scripts/run_models.sh",

@@ -20,12 +20,20 @@ Phase 2 additions (all labelled like their base clip):
                         (attacks.social: rescaling, bits per pixel and profile measured
                         on VISION's real copies); removes the "WhatsApp = organic" shortcut
     ACID targets        `acid_targets_per_device` ACID sample videos per device get the
-                        genuine re-encodes and their platform copies (no attacks)
+                        genuine re-encodes and their platform copies
+
+Phase 4 additions:
+
+    ACID attacks        datasets in `attacks.attack_datasets` (VISION, ACID) get every attack
+                        variant; ACID attackers follow the same rules as VISION ones
+    more genuine copies `reencode_crf18` / `reencode_crf28` also get WhatsApp-/YouTube-like
+                        copies (attacks.social_variants), so a heavily re-shared clip is not
+                        mostly an attacked one
 
 Attacker fingerprints never reuse the analyst's reference (flat videos):
 K_own comes from the *other half* of the device's natural videos, and K_victim
-from all natural videos of a non-stabilized victim of a different model in the
-same cross-validation fold. Fingerprints are scaled to a 1% PRNU, so alpha = 1
+from all natural videos of a victim with a usable PRNU (not stabilized, not in
+acid.prnu_weak_devices) of a different model, same dataset and same cross-validation fold. Fingerprints are scaled to a 1% PRNU, so alpha = 1
 means a 1% multiplicative pattern.
 
 I-frames of every variant go to data/frames/ATTACK/<device>/<content_id>__<variant>.npy
@@ -57,7 +65,7 @@ def load_samples(paths):
     videos = resolve_paths(pd.read_csv(paths["metadata_dir"] / "videos.csv"), paths)
     frames = pd.read_csv(paths["metadata_dir"] / "frames_index.csv")
     frames = frames[frames.status == "ok"][["content_id", "version", "frames_path"]]
-    nat = videos[(videos.dataset == "VISION") & (videos.role == "sample") & (videos.version == "native")]
+    nat = videos[videos.dataset.isin(["VISION", "ACID"]) & (videos.role == "sample") & (videos.version == "native")]
     return nat.merge(frames, on=["content_id", "version"]).sort_values(["device", "content_id"]).reset_index(drop=True)
 
 
@@ -77,8 +85,9 @@ def attacker_fingerprints(samples, out_dir, workers):
 
 
 def pick_victim(target, devices):
-    """Non-stabilized device of another model in the same fold (same split preferred), fixed per target."""
-    other = devices[(devices.group != target.group) & ~devices.stabilized]
+    """Usable-PRNU device of the target's dataset, another model, same fold (same split preferred), fixed per target."""
+    devices = devices[devices.dataset == target.dataset]
+    other = devices[(devices.group != target.group) & devices.usable]
     cand = other[other.fold == target.fold]
     cand = cand if len(cand) else other
     same_split = cand[cand.split == target.split]
@@ -92,7 +101,7 @@ def variants(acfg, dataset="VISION"):
     social is None for base clips, else the platform of a copy of base variant `name.split('+')[0]`."""
     base = [("reencode", "reencode", 0.0, acfg["crf"], None)]
     base += [(f"reencode_crf{q}", "reencode", 0.0, q, None) for q in acfg["crf_controls"]]
-    if dataset == "VISION":
+    if dataset in acfg.get("attack_datasets", ["VISION"]):
         for attack in acfg["types"]:
             grid = acfg["denoise_strengths"] if attack == "denoise" else acfg["alphas"]
             base += [(f"{attack}_a{a:g}", attack, float(a), acfg["crf"], None) for a in grid]
@@ -123,9 +132,9 @@ def run_target(t, victim, ks, ref_dir, acfg, crop, max_frames, frames_dir, tmp_d
     clip = None
     fps = float(t.fps) if t.fps and t.fps > 0 else 30.0
     gop = max(1, round(fps))
-    vision = t.dataset == "VISION"
-    k_own = ks[t.device, f"h{1 - int(t.half)}"] if vision else None
-    k_ref = np.load(ref_dir / f"{t.device}.npy") if vision else None
+    attacked = t.dataset in acfg.get("attack_datasets", ["VISION"])
+    k_own = ks[t.device, f"h{1 - int(t.half)}"] if attacked else None
+    k_ref = np.load(ref_dir / t.dataset / f"{t.device}.npy") if attacked else None
     measured = {}   # removal alpha -> NCC of the attacked I-frames with the analyst's reference
     videos = {}     # base variant -> rendered mp4 kept for its platform copies
     social_bases = set(acfg["social_variants"])
@@ -196,7 +205,7 @@ def run_target(t, victim, ks, ref_dir, acfg, crop, max_frames, frames_dir, tmp_d
             if not out.exists():
                 np.save(out.with_suffix(".tmp.npy"), frames)
                 out.with_suffix(".tmp.npy").rename(out)
-            if vision and (name == "reencode" or attack == "removal") and alpha not in measured \
+            if attacked and (name == "reencode" or attack == "removal") and alpha not in measured \
                     and not social and acfg["adaptive_removal"]:
                 measured[alpha] = zero_shift_ncc(frames, k_ref)
             rows.append({**row, "n_saved": len(frames), "status": "ok", "error": ""})
@@ -218,13 +227,11 @@ def main():
     samples = load_samples(paths)
     samples, ks = attacker_fingerprints(samples, paths["fingerprints_dir"] / "attacker", fcfg["workers"])
 
-    devices = samples.drop_duplicates("device")[["device", "group", "stabilized", "fold", "split"]]
-    targets = samples.groupby("device").head(args.limit or acfg["videos_per_device"])
-    # ACID sample videos get only the genuine re-encodes (and their platform copies)
-    videos = pd.read_csv(paths["metadata_dir"] / "videos.csv")
-    acid = videos[(videos.dataset == "ACID") & (videos.role == "sample") & (videos.version == "native")]
-    acid = acid.sort_values("content_id").groupby("device").head(args.limit or acfg["acid_targets_per_device"])
-    targets = pd.concat([targets, acid], ignore_index=True)
+    devices = samples.drop_duplicates("device")[["device", "dataset", "group", "stabilized", "fold", "split"]]
+    devices["usable"] = ~devices.stabilized.astype(bool) & ~devices.device.isin(cfg["acid"]["prnu_weak_devices"])
+    per_device = {"VISION": acfg["videos_per_device"], "ACID": acfg["acid_targets_per_device"]}
+    targets = pd.concat([g.head(args.limit or per_device[g.dataset.iloc[0]]) for _, g in samples.groupby("device")],
+                        ignore_index=True)
     targets["native_short"] = targets[["width", "height"]].min(axis=1)
     if args.devices:
         targets = targets[targets.device.isin(args.devices)]
@@ -237,9 +244,10 @@ def main():
 
     tmp_dir = paths["data_dir"] / "staging" / "attacks"
     tmp_dir.mkdir(parents=True, exist_ok=True)
-    jobs = [(t, pick_victim(t, devices) if t.dataset == "VISION" else t) for t in targets.itertuples()]
+    jobs = [(t, pick_victim(t, devices) if t.dataset in acfg.get("attack_datasets", ["VISION"]) else t)
+            for t in targets.itertuples()]
     print(f"{len(jobs)} targets: " + ", ".join(f"{n} {d}" for d, n in targets.dataset.value_counts().items()))
-    ref_dir = paths["fingerprints_dir"] / "VISION"
+    ref_dir = paths["fingerprints_dir"]          # analyst references: <dataset>/<device>.npy
     with ThreadPoolExecutor(acfg["workers"]) as ex:
         results = list(tqdm(ex.map(lambda j: run_target(*j, ks, ref_dir, acfg, fcfg["crop"], fcfg["max_iframes"],
                                                         paths["frames_dir"], tmp_dir), jobs),

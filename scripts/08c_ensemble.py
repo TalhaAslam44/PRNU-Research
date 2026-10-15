@@ -13,6 +13,9 @@ For every Step 8 prediction file data/results/models/<protocol>_<scheme>_all_w<N
                  ens_top3  the 3 models with the best val macro-F1 in that split
   stack        multinomial logistic regression on the log-probabilities of every learned model,
                fit on the split's validation predictions (other camera models than test)
+  <model>+safe forensic operating point (Phase 4) for stack, ens_all, vit and xgb: the smallest
+               boost of the organic log-probability that accepts at least SAFE_RECALL of the
+               genuine validation clips, i.e. at most 5% false accusations on validation cameras
 Validation data never sees the test set (val = held-out camera models; in CV the next fold).
 Earlier vit / +cal / ens / stack rows are replaced, so the step can be re-run after Step 8.
 
@@ -33,7 +36,9 @@ from hvpf.config import load_config
 from hvpf.model_data import CLASSES
 
 P = [f"p_{c}" for c in CLASSES]
-DERIVED = r"vit|.*\+cal|ens_.*|stack"          # rows this step writes
+DERIVED = r"vit|.*\+cal|.*\+safe|ens_.*|stack"          # rows this step writes
+SAFE_RECALL = 0.95
+SAFE = ["stack", "ens_all", "vit", "xgb"]
 GRID = np.round(np.arange(-3, 3.01, 0.1), 2)
 
 
@@ -97,6 +102,12 @@ def derive(split):
     lr = LogisticRegression(C=1.0, class_weight="balanced", max_iter=2000)
     z = np.concatenate([logp(probs[m]) for m in models], 1)
     out["stack"] = lr.fit(z[val], y[val]).predict_proba(z)
+    genuine = val & (y == 0)
+    for name in [m for m in SAFE if m in out] if genuine.any() else []:
+        lp = logp(out[name][genuine])
+        boost = next((b for b in np.arange(0, 8.01, 0.05)
+                      if ((lp + [b, 0, 0]).argmax(1) == 0).mean() >= SAFE_RECALL), 8.0)
+        out[f"{name}+safe"] = shift(out[name], np.array([boost, 0.0, 0.0]))
 
     rows = [meta.reset_index().assign(model=name, **{c: p[:, i] for i, c in enumerate(P)})
             for name, p in out.items() if name not in probs]
