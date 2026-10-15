@@ -56,6 +56,29 @@ def scan_sources(scfg):
     return pd.DataFrame(rows)
 
 
+def keep_earlier_claims(df, index_path):
+    """Clips processed in an earlier run keep their claimed camera, split, fold and injection
+    victim: adding generators changes the order of the random draws, and the injected copies'
+    frames carry that victim's PRNU, so frames and labels must not drift apart."""
+    if not index_path.exists():
+        return df
+    old = pd.read_csv(index_path)
+    base = old[~old.content_id.str.contains("+", regex=False)].drop_duplicates("content_id").set_index("content_id")
+    df = df.copy()
+    known = df.content_id.isin(base.index)
+    for col in ("claimed_device", "split"):
+        df.loc[known, col] = df.loc[known, "content_id"].map(base[col])
+    df["fold"] = pd.array(np.where(known, df.content_id.map(base.fold), df.fold.astype("float")), dtype="Float64").astype("Int64")
+    if "inj_alpha" in old:
+        inj = old[old.inj_alpha.notna()]
+        victim = (inj.assign(cid=inj.content_id.str.replace(r"\+inj.*", "", regex=True))
+                  .drop_duplicates("cid").set_index("cid").claimed_device)
+        had = df.content_id.isin(victim.index)
+        df.loc[had, "inj_victim"] = df.loc[had, "content_id"].map(victim)
+    print(f"kept the earlier camera claims of {known.sum()} clips; {(~known).sum()} new clips")
+    return df
+
+
 def sample_per_generator(files, scfg, seed):
     out = []
     for (role, gen), g in files.groupby(["role", "generator"]):
@@ -214,6 +237,7 @@ def main():
     ks = attacker_keys(videos, frames, devices, paths["fingerprints_dir"] / "attacker", fcfg["workers"]) \
         if scfg.get("inject_alphas") else {}
     df["inj_victim"] = injection_victims(df, devices, videos, cfg)
+    df = keep_earlier_claims(df, paths["metadata_dir"] / "synthetic.csv")
     if args.generators:
         df = df[df.generator.isin(args.generators)]
     if args.limit:

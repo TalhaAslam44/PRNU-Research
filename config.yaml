@@ -97,6 +97,13 @@ synthetic:
     - {dir: keling, generator: Kling, dataset: GenVidBench, role: sample}
     - {dir: cogvideo, generator: CogVideo, dataset: GenVidBench, role: sample}
     - {dir: OpenSora_13800, generator: OpenSora, dataset: GenVidBench, role: sample}
+    # Phase 4: GenVidBench generators with native frames >= frames.crop (ModelScope 256x256 and
+    # VideoCrafter2 512x320 are left out: only AI clips would be upscaled - a shortcut).
+    # scripts/extract_generators.py unpacks 400 clips per archive.
+    - {dir: svd, generator: SVD, dataset: GenVidBench, role: sample}
+    - {dir: mora, generator: Mora, dataset: GenVidBench, role: sample}
+    - {dir: t2vz, generator: Text2Video-Zero, dataset: GenVidBench, role: sample}
+    - {dir: pika, generator: Pika, dataset: GenVidBench, role: sample}
     - {dir: GenBuster-200K-mini/train/fake, generator: from_subdir, dataset: GenBuster, role: crossdataset}
   videos_per_generator: 300
   crossdataset_videos_per_generator: 150
