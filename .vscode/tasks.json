@@ -105,6 +105,12 @@
       "problemMatcher": []
     },
     {
+      "label": "Compare phases on the same clips (Phase 3 vs current)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python scripts/compare_phases.py && ${workspaceFolder}/.venv/bin/python scripts/compare_phases.py --protocol controlled",
+      "problemMatcher": []
+    },
+    {
       "label": "PHASE 4 · progress",
       "type": "shell",
       "command": "for f in 05_attacks_phase4 05_attacks_finish 07_features 07b_noiseprint models vit vit_w10 10_camera_id 08c_ensemble 09_evaluate; do [ -f data/logs/$f.log ] && { echo \"== $f\"; tr '\\r' '\\n' < data/logs/$f.log | grep -v 'Warning\\|warn\\|^$' | tail -3; }; done; cat data/logs/run_phase4.log 2>/dev/null; pgrep -f 'run_phase[4].sh|10_camera_[i]d' > /dev/null && echo '>>> still running' || echo '>>> not running'",
