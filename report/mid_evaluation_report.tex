@@ -32,15 +32,17 @@
 \item \textbf{What I built.} HVPF, a pipeline that decides for every video clip whether it is \emph{organic} (genuine camera
       footage), \emph{manipulated} (an anti-forensic attack on the fingerprint) or \emph{synthetic} (AI-generated), by combining
       PRNU analysis with machine learning and deep learning (a Vision Transformer).
-\item \textbf{Data.} Three real-camera datasets (VISION, Video-ACID, FloreView; 124 usable cameras), eight AI generators for
-      training and four unseen ones for testing; 46,799 clips in the current phase.
+\item \textbf{Data.} Three real-camera datasets (VISION, Video-ACID, FloreView; 124 usable cameras), four AI generators for
+      training and four unseen ones for testing; 27,583 video clips.
 \item \textbf{Main result so far (Phase 3).} On cameras never seen in training, the hybrid model reaches macro F1 0.851 and
       AUC 0.941 for genuine vs.\ not genuine; the conventional PRNU method reaches AUC 0.549. AI videos with an injected camera
       fingerprint pass the conventional check 98\% of the time, but the hybrid model only 0--1\%.
 \item \textbf{Honest evaluation.} Three ``shortcuts'' that inflate scores were found and removed (WhatsApp compression,
       clip length, encoder traces). Results are reported on unseen camera models, unseen phones (FloreView) and unseen AI generators.
-\item \textbf{Now running (Phase 4).} Attacks on a second dataset, four more AI generators, more genuine platform copies, a
-      10-frame ViT and a ``safe'' decision rule. Trained camera identification is already done: 94.9\% on Video-ACID.
+\item \textbf{Camera identification.} A trained ViT combined with PRNU identifies the source camera of 94.9\% of
+      Video-ACID test videos, including stabilised phones where PRNU alone fails.
+\item \textbf{Next.} Reducing false accusations of heavily re-shared genuine videos (the main open problem), more attack and
+      AI-generator data, same-protocol baselines and an adaptive attacker.
 \end{itemize}
 \end{keybox}
 
@@ -157,7 +159,7 @@ recorded this video?''. Figure~\ref{fig:detector} zooms into the hybrid detector
 \node[src] (vis) at (0,0) {\textbf{VISION}\\35 cameras; native, real YouTube and WhatsApp copies};
 \node[src] (acid) at (0,-2.05) {\textbf{Video-ACID}\\44 cameras, 200 videos each};
 \node[src] (fv) at (0,-4.1) {\textbf{FloreView}\\45 modern phones\\\textit{unseen: test only}};
-\node[src] (gvb) at (0,-6.15) {\textbf{GenVidBench}\\8 AI generators (Sora, Kling, CogVideo, OpenSora, SVD, Mora, T2V-Zero, Pika)};
+\node[src] (gvb) at (0,-6.15) {\textbf{GenVidBench}\\4 AI generators (Sora, Kling, CogVideo, OpenSora)};
 \node[src] (gb) at (0,-8.3) {\textbf{GenBuster}\\4 AI generators\\\textit{unseen: test only}};
 \begin{scope}[on background layer]\node[draw=black!40, dashed, rounded corners, fit=(vis)(gb), inner sep=4pt] (srcbox) {};\end{scope}
 % preparation
@@ -169,7 +171,7 @@ recorded this video?''. Figure~\ref{fig:detector} zooms into the hybrid detector
 % reference & test material
 \node[gen] (s4) at (8.6,0) {\textbf{Step 4 -- PRNU fingerprints}\\$K$ per camera from reference videos; PCE / NCC attribution baseline};
 \node[gen] (org) at (8.6,-2.6) {\textbf{Genuine clips} (organic)\\natural videos, real platform copies, genuine re-encodes + their platform copies};
-\node[gen] (s5) at (8.6,-5.2) {\textbf{Step 5 -- Manipulated}\\PRNU removal, PRNU injection, denoising; WhatsApp-/YouTube-like copies; VISION + ACID};
+\node[gen] (s5) at (8.6,-5.2) {\textbf{Step 5 -- Manipulated}\\PRNU removal, PRNU injection, denoising; WhatsApp-/YouTube-like copies of the attacked clips};
 \node[gen] (s6) at (8.6,-7.85) {\textbf{Step 6 -- Synthetic}\\AI clips re-encoded like the rest; claimed camera; Khan-style PRNU injection; platform copies};
 \draw[bus] (s3.east) -- (6.55,-5.3);
 \draw[bus] (6.55,0) -- (6.55,-7.85);
@@ -180,7 +182,7 @@ recorded this video?''. Figure~\ref{fig:detector} zooms into the hybrid detector
   \textbullet\ PRNU: NCC, PCE$_0$ vs.\ claimed camera and best \emph{other} camera\\
   \textbullet\ residual statistics\\ \textbullet\ FFT statistics\\ \textbullet\ TSNCS (temporal consistency)\\
   \textbullet\ Noiseprint++ statistics (7b)\\ per frame and per clip};
-\node[feat] (store) at (12.9,-6.6) {\textbf{Frame store}\\first 5 (or 10) I-frames of every clip; 46,799 clips (Phase 4)};
+\node[feat] (store) at (12.9,-6.6) {\textbf{Frame store}\\first 5 I-frames of every clip; 27,583 clips};
 \draw[bus] (org.east) -- (10.95,-2.6); \draw[bus] (s5.east) -- (10.95,-5.2); \draw[bus] (s6.east) -- (10.95,-7.85);
 \draw[bus] (10.95,-2.6) -- (10.95,-7.85);
 \draw[arr] (10.95,-6.6) -- (store.west);
@@ -249,24 +251,23 @@ VISION & 35 smartphones (29 models): flat and natural videos, each natural video
        & 1,914 videos & train / val / test \\
 Video-ACID & 46 cameras (36 models; 2 Nokia cameras unreadable, so 44 used); natural videos & 200 videos per camera & train / val / test \\
 FloreView & 45 modern phones (40 models), mostly with electronic stabilisation & 1,960 videos & \textbf{unseen test only} \\
-GenVidBench & AI video: Sora, Kling, CogVideo, OpenSora; Phase 4 adds SVD, Mora, Text2Video-Zero, Pika & 51--300 clips per generator & train / val / test \\
+GenVidBench & AI video: Sora, Kling, CogVideo, OpenSora & 51--300 clips per generator & train / val / test \\
 GenBuster & AI video (GenBuster-200K-mini): CogVideoX, EasyAnimate, HunyuanVideo, LTX-Video & 150 clips per generator & \textbf{unseen test only} \\\bottomrule
 \end{tabularx}\caption{Datasets. ``Unseen'' sources never enter training; they test generalisation to new phones and new generators.}\end{table}
 
 \begin{table}[H]\centering\small
-\begin{tabular}{llrr}\toprule
-Class & Source of the clips & Phase 3 & Phase 4 \\\midrule
-\multirow{4}{*}{Organic (genuine)} & VISION natural videos (native + real platform copies) & 1,259 & 1,259 \\
- & Video-ACID natural videos & 4,380 & 4,380 \\
- & Genuine re-encodes + platform copies (VISION, ACID) & 5,568 & 9,280 \\
- & FloreView (unseen phones) & 1,716 & 1,716 \\\midrule
-\multirow{2}{*}{Manipulated} & VISION attacks (35 cameras) & 7,200 & 7,200 \\
- & Video-ACID attacks (44 cameras) & -- & 9,504 \\\midrule
-\multirow{2}{*}{Synthetic (AI)} & GenVidBench (incl.\ PRNU-injected copies) & 4,460 & 10,460 \\
- & GenBuster (unseen generators, incl.\ injected copies) & 3,000 & 3,000 \\\midrule
-\textbf{Total} & & \textbf{27,583} & \textbf{46,799} \\\bottomrule
-\end{tabular}\caption{Clips per class. Phase 4 balances the classes much better (16,635 organic, 16,704 manipulated,
-13,460 synthetic, of which 5,384 carry an injected camera PRNU).}\label{tab:composition}\end{table}
+\begin{tabular}{llr}\toprule
+Class & Source of the clips & Clips \\\midrule
+\multirow{4}{*}{Organic (genuine)} & VISION natural videos (native + real platform copies) & 1,259 \\
+ & Video-ACID natural videos & 4,380 \\
+ & Genuine re-encodes + platform copies (VISION, ACID) & 5,568 \\
+ & FloreView (unseen phones) & 1,716 \\\midrule
+Manipulated & VISION attacks (35 cameras) & 7,200 \\\midrule
+\multirow{2}{*}{Synthetic (AI)} & GenVidBench (incl.\ PRNU-injected copies) & 4,460 \\
+ & GenBuster (unseen generators, incl.\ injected copies) & 3,000 \\\midrule
+\textbf{Total} & & \textbf{27,583} \\\bottomrule
+\end{tabular}\caption{Clips per class (12,923 organic, 7,200 manipulated, 7,460 synthetic, of which 2,984 carry an injected
+camera PRNU).}\label{tab:composition}\end{table}
 
 %=====================================================================================================
 \section{The pipeline, step by step}\label{sec:steps}
@@ -337,7 +338,7 @@ $\rightarrow$ real WhatsApp copy 60.7\%, and 0\% for WhatsApp copies of rotated 
 
 \subsection{Step 5 -- The manipulated class: anti-forensic attacks (\texttt{05\_attacks.py})}
 \say{Attack real videos the way a forger would, to create the ``manipulated'' class.}
-Targets: 12 natural videos per camera (400 VISION videos; Phase 4 adds 528 Video-ACID videos). Each is decoded once, attacked,
+Targets: 12 natural videos per VISION camera (400 videos; 528 Video-ACID videos get the genuine re-encodes). Each is decoded once, attacked,
 and re-encoded with libx264 (one I-frame per second). With $Y$ the frame and $K$ a fingerprint scaled to a 1\% PRNU:
 \begin{table}[H]\centering\small
 \begin{tabularx}{\linewidth}{lYl}\toprule
@@ -352,8 +353,8 @@ Genuine re-encodes & the same encoder without an attack (CRF 18, 20, 23, 28) + p
 \end{tabularx}\end{table}
 \textbf{Realistic attacker.} The attacker never uses the analyst's reference videos: $K_{\text{own}}$ comes from the
 \emph{other half} of the camera's natural videos, and $K_{\text{victim}}$ from a camera of another model in the same fold with a
-usable PRNU. Example (Video-ACID camera M29\_DA): white-box removal leaves PCE$_0$ = 0.1; injection with $\alpha=1$ makes the
-clip match the victim camera at PCE$_0$ = 1186 while the true camera remains faintly visible (61.5).
+usable PRNU. Example: a clip of VISION camera D24 injected with camera D22's fingerprint matches D22 at PCE$_0$ = 132.5
+($\alpha$ = 0.5) and 597.5 ($\alpha$ = 1), far above the threshold of 60.
 \why{genuine re-encodes through the same encoder are essential: without them the model could learn ``re-encoded = attacked''.}
 
 \subsection{Step 6 -- The synthetic class: AI-generated video (\texttt{06\_synthetic.py})}
@@ -365,8 +366,8 @@ clip match the victim camera at PCE$_0$ = 1186 while the true camera remains fai
 \item WhatsApp-like and YouTube-like copies of every AI clip.
 \item \textbf{Khan-style PRNU transfer}: copies with a real camera's fingerprint injected ($\alpha$ = 0.5 and 1). A Sora clip
       injected with camera M29\_DA's fingerprint reaches PCE$_0$ = 376 / 1398, i.e.\ it passes conventional verification.
-\item Phase 4 adds SVD, Mora, Text2Video-Zero and Pika. ModelScope ($256\times256$) and VideoCrafter2 ($512\times320$) were
-      downloaded but \emph{not} used: they would need upscaling, and upscaling only AI clips would give the detector a shortcut.
+\item AI clips smaller than the $480\times480$ crop are not used: they would need upscaling, and upscaling only AI clips would
+      give the detector a shortcut.
 \end{itemize}
 
 \subsection{Step 7 / 7b -- Forensic features (\texttt{07\_features.py}, \texttt{07b\_noiseprint.py})}
@@ -398,7 +399,7 @@ Noiseprint++ (7b) & statistics of the Noiseprint++ map; spectral similarity to t
 \say{A deep model that looks directly at the noise of the frames instead of hand-made features.}
 ViT-S/16 pretrained on ImageNet-21k, fine-tuned on three SRM noise residuals of each I-frame (random $224\times224$ crops and
 flips; AdamW, mixed precision, label smoothing, early stopping on validation macro-F1). A clip's prediction averages its
-5 frames $\times$ 4 crops. Same input size as the base paper PDC-ViT. Phase 4 also runs it on 10 frames.
+5 frames $\times$ 4 crops. Same input size as the base paper PDC-ViT.
 
 \subsection{Step 8c -- Fusion: calibration, ensembles, stacking, safe operating point (\texttt{08c\_ensemble.py})}
 \say{Combine the models, using only validation cameras to decide how.}
@@ -407,7 +408,7 @@ flips; AdamW, mixed precision, label smoothing, early stopping on validation mac
 \item \textbf{Ensembles}: average the class probabilities of model groups (all models; the three best on validation; \dots).
 \item \textbf{Stacking}: a logistic regression that learns from the validation predictions how much to trust each model.
       This is the best combination.
-\item \textbf{Safe operating point} (Phase 4): the smallest shift towards ``genuine'' that accepts at least 95\% of genuine
+\item \textbf{Safe operating point} (being evaluated): the smallest shift towards ``genuine'' that accepts at least 95\% of genuine
       validation clips --- at most 5\% false accusations, the forensic priority.
 \end{itemize}
 
@@ -460,8 +461,7 @@ Phase & Clips & Best model & Macro F1 & AUC & Controlled F1 & Unseen F1 \\\midru
 1 -- first full run & $\approx$8,000 & GRU & 0.852 & 0.930 & 0.703 & (AI only) \\
 2 -- honest benchmark & 24,599 & XGBoost & 0.792 & 0.899 & 0.770 & 0.692 \\
 3 -- ViT + stacking & 27,583 & Stacking & \textbf{0.851} & \textbf{0.941} & \textbf{0.816} & \textbf{0.863} \\
-HVPF-2 (80/20 check) & 27,583 & Stacking & 0.850 & 0.941 & 0.818 & 0.893 \\
-4 -- more data (running) & 46,799 & \multicolumn{5}{l}{\textit{results expected after the current run}} \\\bottomrule
+HVPF-2 (80/20 check) & 27,583 & Stacking & 0.850 & 0.941 & 0.818 & 0.893 \\\bottomrule
 \end{tabular}\caption{Best model per phase (realistic protocol, 5-fold cross-validation on unseen camera models, 5 frames).}
 \label{tab:phases}\end{table}
 \begin{itemize}
@@ -538,7 +538,7 @@ Models trained on VISION + ACID + GenVidBench were tested on FloreView (new phon
 reaches F1 0.863 and AUC 0.965. The ViT is the most robust single model: it recognises 90\% of FloreView genuine videos
 (XGBoost 55\%), including 88\% of stabilised phones without a usable PRNU.
 
-\subsection{Camera identification by training (Step 10, Phase 4)}
+\subsection{Camera identification by training (Step 10)}
 \begin{table}[H]\centering\small
 \setlength{\tabcolsep}{4.5pt}\begin{tabular}{lrrrrr}\toprule
 Test videos (cameras) & Trained ViT & PRNU & \textbf{Hybrid} & ViT: model right & PDC-ViT$^\dagger$ \\\midrule
@@ -566,20 +566,20 @@ Bao et al.\ 2024 & frame-deletion detection from inter-frame noise; ROC curves, 
 \end{tabularx}\end{table}
 
 %=====================================================================================================
-\section{Current work: Phase 4}\label{sec:phase4}
-Phase 4 addresses the weak spots found in Phase 3:
+\section{Ongoing work}\label{sec:ongoing}
+The Phase 3 results point to the next improvements:
 \begin{table}[H]\centering\small
-\begin{tabularx}{\linewidth}{lYl}\toprule
-Weak spot & Change & Status \\\midrule
-Manipulated class from 35 VISION cameras only & all attacks also on 528 Video-ACID videos (9,504 clips; 79 cameras) & done \\
-Genuine re-shared clips called ``manipulated'' & 3,712 more genuine platform copies; safe operating point & done / running \\
-Unseen generators after WhatsApp (42\%) & four more training generators (SVD, Mora, Text2Video-Zero, Pika; 6,000 clips) & done \\
-Single-frame ViT & ViT also with 10 frames & running \\
-Scene leakage in camera identification & near-duplicate scene grouping & done \\\bottomrule
+\begin{tabularx}{\linewidth}{lY}\toprule
+Weak spot & Planned change \\\midrule
+Manipulated class from 35 VISION cameras only & the same attacks on Video-ACID videos (second dataset) \\
+Genuine re-shared clips called ``manipulated'' & more genuine platform copies; a safe operating point \\
+Unseen generators after WhatsApp-like compression (42\%) & more AI generators in training \\
+Single-frame ViT & ViT over 10 frames \\\bottomrule
 \end{tabularx}\end{table}
-Feature extraction, all models, the ViT and evaluation are running (about 14 hours). A first test of the safe operating point
-on Phase 3 predictions shows the trade-off it must manage: genuine clips accepted rises from 79\% to 95\%, AI clips caught stays
-at 97\%, but caught attacks fall from 82\% to 53\%. The additional genuine platform copies are meant to reduce this overlap.
+Each extension is compared with Phase 3 on the \emph{same} test clips (the untrained PCE rule must score identically, which
+checks that the comparison is fair). A first test of the safe operating point on the Phase 3 predictions shows the trade-off
+it must manage: genuine clips accepted rises from 79\% to 95\%, AI clips caught stays at 97\%, but caught attacks fall from
+82\% to 53\%.
 
 %=====================================================================================================
 \section{Limitations and threats to validity}
@@ -596,7 +596,7 @@ at 97\%, but caught attacks fall from 82\% to 53\%. The additional genuine platf
 
 \section{Plan until the final evaluation}
 \begin{enumerate}
-\item Finish Phase 4 and report its results against Phase 3 (in progress).
+\item Evaluate the extensions above against Phase 3 on the same clips and keep only those that help.
 \item Re-run a PDC-ViT-style model and one published AI-video detector on our own splits (same-protocol baselines).
 \item One adaptive attack aimed at the detector, or a clearly bounded threat model.
 \item A small real-upload test: genuine and fake clips through real WhatsApp and YouTube.
@@ -622,7 +622,7 @@ at 97\%, but caught attacks fall from 82\% to 53\%. The additional genuine platf
 \item[Is the 80/20 split better?] It was tested (HVPF-2): +0.006 F1 on average for single models, within the fold-to-fold
       variation. The main protocol (60/20/20 + 5 folds) keeps a clean validation set for every decision.
 \item[What happens with real WhatsApp?] For genuine VISION videos with real WhatsApp copies the detector recognises 48\%; this is
-      the main open problem and the focus of Phase 4.
+      the main open problem and the focus of the ongoing work.
 \end{description}
 
 \section{Glossary}
@@ -639,8 +639,8 @@ at 97\%, but caught attacks fall from 82\% to 53\%. The additional genuine platf
 
 \section{Reproducibility}
 Code: \url{https://github.com/TalhaAslam44/PRNU-Research} (branch \texttt{main}; the 80/20 study on branch \texttt{hvpf-2}).
-Every step is a script in \texttt{scripts/} (01--10) with a VS Code task; \texttt{scripts/run\_phase4.sh} runs the current
-phase. Detailed results: \texttt{report/results\_phase3.pdf} (Phase 3) and \texttt{results\_hvpf2.pdf} (HVPF-2 branch).
+Every step is a script in \texttt{scripts/} (01--10) with a VS Code task; \texttt{scripts/run\_phase3.sh} reproduces these
+results. Detailed results: \texttt{report/results\_phase3.pdf} (Phase 3) and \texttt{results\_hvpf2.pdf} (HVPF-2 branch).
 
 \begin{thebibliography}{9}
 \bibitem{pdcvit} O.~Elharrouss et al., ``PDC-ViT: source camera identification using pixel difference convolution and vision
