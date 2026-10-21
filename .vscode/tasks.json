@@ -105,6 +105,12 @@
       "problemMatcher": []
     },
     {
+      "label": "Diagnose Phase 4: which addition hurt? (~40 min, keep VS Code open)",
+      "type": "shell",
+      "command": "./scripts/run_diagnosis.sh",
+      "problemMatcher": []
+    },
+    {
       "label": "Compare phases on the same clips (Phase 3 vs current)",
       "type": "shell",
       "command": "${workspaceFolder}/.venv/bin/python scripts/compare_phases.py && ${workspaceFolder}/.venv/bin/python scripts/compare_phases.py --protocol controlled",

@@ -18,6 +18,7 @@ Validation rows only tune calibration and ensembles (Step 8c); Step 9 turns the 
 Usage:
     python scripts/08_models.py --protocol realistic --scheme fixed
     python scripts/08_models.py --protocol controlled --scheme folds --drop tsncs   # ablation
+    python scripts/08_models.py --scheme folds --exclude-train acid_attacks   # diagnosis (scripts/run_diagnosis.sh)
 """
 import argparse
 import sys
@@ -47,6 +48,24 @@ def softmax(z):
     z = z - z.max(1, keepdims=True)
     e = np.exp(z)
     return e / e.sum(1, keepdims=True)
+
+
+# Phase 4 additions that --exclude-train can leave out of training and validation (test clips are kept)
+NEW_GENERATORS = {"SVD", "Mora", "Text2Video-Zero", "Pika"}
+NEW_GENUINE = {f"reencode_crf{q}+{pf}" for q in (18, 28) for pf in ("wa", "yt")}
+
+
+def excluded(per_video, groups):
+    """Clips of the given Phase 4 additions: acid_attacks | new_genuine | new_generators."""
+    m = np.zeros(len(per_video), bool)
+    variant = per_video.variant.astype(str)
+    if "acid_attacks" in groups:
+        m |= ((per_video.source == "ACID-attack") & (per_video.label == "manipulated")).to_numpy()
+    if "new_genuine" in groups:
+        m |= variant.isin(NEW_GENUINE).to_numpy()
+    if "new_generators" in groups:
+        m |= ((per_video.source == "GenVidBench") & variant.str.split("+").str[0].isin(NEW_GENERATORS)).to_numpy()
+    return m
 
 
 def fit_svm(xtr, ytr, xva, yva):
@@ -154,6 +173,8 @@ def main():
     ap.add_argument("--window", type=int, help="frames per clip (default: features.window); one of features.windows")
     ap.add_argument("--min-frames", type=int, default=0,
                     help="keep only clips with at least this many I-frames (length-matched 5 vs 10 comparison)")
+    ap.add_argument("--exclude-train", nargs="*", default=[], choices=["acid_attacks", "new_genuine", "new_generators"],
+                    help="leave these Phase 4 additions out of training and validation (diagnosis); test clips are kept")
     args = ap.parse_args()
 
     cfg = load_config()
@@ -167,12 +188,15 @@ def main():
     vcols, fcols = feature_columns(per_video, groups), frame_columns(frames, groups)
     y = per_video.label.map(CLASSES.index).to_numpy()
     tag = ("all" if not args.drop else "no_" + "_".join(sorted(args.drop))) + f"_w{window}" \
-        + (f"_min{args.min_frames}" if args.min_frames else "")
+        + (f"_min{args.min_frames}" if args.min_frames else "") \
+        + (f"_ex-{'-'.join(sorted(args.exclude_train))}" if args.exclude_train else "")
+    drop_train = excluded(per_video, args.exclude_train)
     print(f"{args.protocol}/{args.scheme}/{tag}: {len(per_video)} samples, {len(vcols)} clip features, "
           f"{len(fcols)} frame features; classes {np.bincount(y, minlength=3).tolist()}")
 
     out_rows = []
     for name, tr, va, te in split_masks(per_video, args.scheme):
+        tr, va = tr & ~drop_train, va & ~drop_train
         cross = (per_video.split == "crossdataset").to_numpy() if args.scheme == "fixed" else np.zeros(len(y), bool)
         evaluate = te | cross | va          # validation predictions feed calibration / ensembles (08c)
         meta = per_video.loc[evaluate, ["sample_id", "label", "source", "variant", "social", "alpha", "stabilized",

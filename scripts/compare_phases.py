@@ -52,12 +52,13 @@ def main():
     ap.add_argument("--new", default="data/results", help="current results (contains models/)")
     ap.add_argument("--protocol", choices=["realistic", "controlled"], default="realistic")
     ap.add_argument("--tag", default="all_w5")
+    ap.add_argument("--new-tag", help="tag of the new phase's file if it differs (e.g. all_w5_ex-acid_attacks)")
     args = ap.parse_args()
     warnings.filterwarnings("ignore")
     root = load_config()["paths"]["data_dir"].parent
     name = f"{args.protocol}_folds_{args.tag}.parquet"
     old = pd.read_parquet(root / args.old / "models" / name)
-    new = pd.read_parquet(root / args.new / "models" / name)
+    new = pd.read_parquet(root / args.new / "models" / f"{args.protocol}_folds_{args.new_tag or args.tag}.parquet")
     old, new = old[old.part == "test"], new[new.part == "test"]
     ids_old = set(old[old.model == "baseline"].sample_id)
     ids_new = set(new[new.model == "baseline"].sample_id)
@@ -73,7 +74,7 @@ def main():
             if len(g) and ids:
                 rows.append({"model": m, "phase": phase, "clips": part, "n": len(g), **scores(g)})
     t = pd.DataFrame(rows)
-    out = root / args.new / "metrics" / f"phase_comparison_{args.protocol}_{args.tag}.csv"
+    out = root / args.new / "metrics" / f"phase_comparison_{args.protocol}_{args.new_tag or args.tag}.csv"
     t.to_csv(out, index=False)
 
     sh = t[t.clips == "shared"].pivot_table(index="model", columns="phase", values=["f1", "auc"]).reindex(MODELS).dropna(how="all")
