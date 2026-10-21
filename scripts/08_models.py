@@ -19,6 +19,7 @@ Usage:
     python scripts/08_models.py --protocol realistic --scheme fixed
     python scripts/08_models.py --protocol controlled --scheme folds --drop tsncs   # ablation
     python scripts/08_models.py --scheme folds --exclude-train acid_attacks   # diagnosis (scripts/run_diagnosis.sh)
+    python scripts/08_models.py --scheme folds --balance-datasets             # experiment (scripts/run_balanced.sh)
 """
 import argparse
 import sys
@@ -68,24 +69,48 @@ def excluded(per_video, groups):
     return m
 
 
-def fit_svm(xtr, ytr, xva, yva):
+def dataset_of(per_video):
+    """Data source of every clip: VISION / ACID (incl. their attacked and re-encoded copies) / FloreView / AI."""
+    src = per_video.source.astype(str)
+    return np.select([src.str.startswith("VISION"), src.str.startswith("ACID"), src == "FloreView"],
+                     ["VISION", "ACID", "FloreView"], "AI")
+
+
+def dataset_balanced_weights(y, groups):
+    """Experiment (--balance-datasets): every class gets the same total weight, and inside a class every data source
+    an equal share, so the larger ACID attack set cannot dominate the manipulated class. Mean weight 1."""
+    w = np.zeros(len(y))
+    classes = np.unique(y)
+    for c in classes:
+        in_c = y == c
+        sources = np.unique(groups[in_c])
+        for g in sources:
+            m = in_c & (groups == g)
+            w[m] = 1.0 / (len(classes) * len(sources) * m.sum())
+    return w * len(y)
+
+
+def fit_svm(xtr, ytr, xva, yva, sw=None):
     best = None
     for c in (0.3, 1, 3, 10, 30):
-        m = SVC(C=c, gamma="scale", class_weight="balanced").fit(xtr, ytr)
+        if sw is None:
+            m = SVC(C=c, gamma="scale", class_weight="balanced").fit(xtr, ytr)
+        else:
+            m = SVC(C=c, gamma="scale").fit(xtr, ytr, sample_weight=sw)
         f1 = f1_score(yva, m.predict(xva), average="macro")
         if best is None or f1 > best[0]:
             best = (f1, m)
     return best[1], lambda x: softmax(best[1].decision_function(x))
 
 
-def fit_xgb(xtr, ytr, xva, yva):
+def fit_xgb(xtr, ytr, xva, yva, sw=None):
     w = compute_class_weight("balanced", classes=np.arange(3), y=ytr)
     best = None
     for depth, mcw in ((4, 1), (6, 1), (8, 1), (6, 5)):
         m = XGBClassifier(n_estimators=1500, learning_rate=0.05, max_depth=depth, min_child_weight=mcw,
                           subsample=0.8, colsample_bytree=0.8, tree_method="hist", device=DEV,
                           eval_metric="mlogloss", early_stopping_rounds=60)
-        m.fit(xtr, ytr, sample_weight=w[ytr], eval_set=[(xva, yva)], verbose=False)
+        m.fit(xtr, ytr, sample_weight=w[ytr] if sw is None else sw, eval_set=[(xva, yva)], verbose=False)
         f1 = f1_score(yva, m.predict(xva), average="macro")
         if best is None or f1 > best[0]:
             best = (f1, m)
@@ -127,13 +152,17 @@ class SeqNet(nn.Module):
         return self.head(torch.cat([pooled, v], 1))
 
 
-def fit_seq(kind, data, ytr, yva, window, epochs=80, patience=10, seed=0):
+def fit_seq(kind, data, ytr, yva, window, epochs=80, patience=10, seed=0, sw=None):
     (str_, mtr, vtr), (sva, mva, vva) = data["train"], data["val"]
     torch.manual_seed(seed)
     net = SeqNet(kind, str_.shape[2], vtr.shape[1], window).to(DEV)
     opt = torch.optim.Adam(net.parameters(), lr=1e-3, weight_decay=1e-4)   # thesis: Adam, lr 0.001, L2
     w = torch.tensor(compute_class_weight("balanced", classes=np.arange(3), y=ytr), dtype=torch.float32, device=DEV)
     loss_fn = nn.CrossEntropyLoss(weight=w)
+    if sw is not None:                       # per-clip weights (--balance-datasets) replace the class weights
+        per_clip = nn.CrossEntropyLoss(reduction="none")
+        swt = torch.as_tensor(sw, dtype=torch.float32, device=DEV)
+        loss_fn = lambda out, target, b: (per_clip(out, target) * swt[b]).sum() / swt[b].sum()
     t = lambda a, dt=torch.float32: torch.as_tensor(a, dtype=dt, device=DEV)
     xs, ms, vs, ys = t(str_), t(mtr, torch.bool), t(vtr), t(ytr, torch.long)
 
@@ -149,7 +178,8 @@ def fit_seq(kind, data, ytr, yva, window, epochs=80, patience=10, seed=0):
         net.train()
         for b in torch.randperm(len(xs), device=DEV).split(128):
             opt.zero_grad()
-            loss_fn(net(xs[b], ms[b], vs[b]), ys[b]).backward()
+            out = net(xs[b], ms[b], vs[b])
+            (loss_fn(out, ys[b]) if sw is None else loss_fn(out, ys[b], b)).backward()
             opt.step()
         f1 = f1_score(yva, predict(sva, mva, vva).argmax(1), average="macro")
         if f1 > best:
@@ -173,6 +203,9 @@ def main():
     ap.add_argument("--window", type=int, help="frames per clip (default: features.window); one of features.windows")
     ap.add_argument("--min-frames", type=int, default=0,
                     help="keep only clips with at least this many I-frames (length-matched 5 vs 10 comparison)")
+    ap.add_argument("--balance-datasets", action="store_true",
+                    help="experiment: weight training clips so each data source has an equal share within its class "
+                         "(off in the Phase 3 / Phase 4 runs; output files get the suffix _baldata)")
     ap.add_argument("--exclude-train", nargs="*", default=[], choices=["acid_attacks", "new_genuine", "new_generators"],
                     help="leave these Phase 4 additions out of training and validation (diagnosis); test clips are kept")
     args = ap.parse_args()
@@ -191,6 +224,8 @@ def main():
         + (f"_min{args.min_frames}" if args.min_frames else "") \
         + (f"_ex-{'-'.join(sorted(args.exclude_train))}" if args.exclude_train else "")
     drop_train = excluded(per_video, args.exclude_train)
+    tag += "_baldata" if args.balance_datasets else ""
+    source = dataset_of(per_video)
     print(f"{args.protocol}/{args.scheme}/{tag}: {len(per_video)} samples, {len(vcols)} clip features, "
           f"{len(fcols)} frame features; classes {np.bincount(y, minlength=3).tolist()}")
 
@@ -212,7 +247,8 @@ def main():
         X = np.nan_to_num(X)
         for model in [m for m in args.models if m in ("svm", "xgb")]:
             t0 = time.time()
-            _, prob = (fit_svm if model == "svm" else fit_xgb)(X[tr], y[tr], X[va], y[va])
+            sw = dataset_balanced_weights(y[tr], source[tr]) if args.balance_datasets else None
+            _, prob = (fit_svm if model == "svm" else fit_xgb)(X[tr], y[tr], X[va], y[va], sw=sw)
             p = prob(X[evaluate])
             out_rows.append(meta.assign(model=model, **{f"p_{c}": p[:, i] for i, c in enumerate(CLASSES)}))
             print(f"  {name} {model:11s} {time.time() - t0:6.1f}s")
@@ -226,7 +262,8 @@ def main():
             data = {"train": (S[tr], M[tr], X[tr]), "val": (S[va], M[va], X[va])}
             for model in seq_models:
                 t0 = time.time()
-                _, predict = fit_seq(model, data, y[tr], y[va], window)
+                sw = dataset_balanced_weights(y[tr], source[tr]) if args.balance_datasets else None
+                _, predict = fit_seq(model, data, y[tr], y[va], window, sw=sw)
                 p = predict(S[evaluate], M[evaluate], X[evaluate])
                 out_rows.append(meta.assign(model=model, **{f"p_{c}": p[:, i] for i, c in enumerate(CLASSES)}))
                 print(f"  {name} {model:11s} {time.time() - t0:6.1f}s")

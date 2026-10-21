@@ -105,6 +105,12 @@
       "problemMatcher": []
     },
     {
+      "label": "Experiment: dataset-balanced training (~15 min, keep VS Code open)",
+      "type": "shell",
+      "command": "./scripts/run_balanced.sh",
+      "problemMatcher": []
+    },
+    {
       "label": "Diagnose Phase 4: which addition hurt? (~40 min, keep VS Code open)",
       "type": "shell",
       "command": "./scripts/run_diagnosis.sh",
