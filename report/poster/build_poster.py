@@ -15,9 +15,11 @@ BODY = {
  (1, "TextBox 13"): [("Sensor fingerprint (PRNU):", " a unique noise pattern that links a video to its camera"),
                      ("Threat:", " attackers remove it, forge another camera's PRNU, or inject it into AI-generated video"),
                      ("Gap:", " the conventional PCE test cannot tell organic from forged sensor noise")],
- (2, "TextBox 13"): [("RQ1:", " Which features distinguish organic from synthetic or manipulated sensor noise?"),
-                     ("RQ2:", " How do compression, resizing and stabilisation affect PRNU-based provenance?"),
-                     ("RQ3:", " Can a hybrid PRNU + ML/DL framework outperform conventional PRNU verification?")],
+ (2, "TextBox 13"): [("Analyse", " PRNU in genuine and attacked video"),
+                     ("Identify", " features of organic vs. synthetic noise"),
+                     ("Develop", " a hybrid PRNU + ML/DL framework"),
+                     ("Evaluate", " robustness to re-sharing and attacks"),
+                     ("Improve", " on conventional PRNU verification")],
  (3, "TextBox 13"): [("Data:", " 124 cameras, 8 AI generators, 27,583 clips"),
                      ("Attacks:", " PRNU removal / injection, denoising"),
                      ("Conditions:", " WhatsApp / YouTube-like re-sharing"),
@@ -43,9 +45,11 @@ NOTES = {
     "An attacker can subtract that fingerprint, add another camera's, or add a real camera's fingerprint to an AI-generated "
     "video so it passes as genuine. The PCE test only checks whether the fingerprint is present, so it cannot tell genuine "
     "sensor noise from forged noise. That is the gap this thesis addresses.",
- 2: "Three research questions. RQ1: which characteristics separate genuine sensor noise from manipulated or synthetic noise? "
-    "RQ2: how does everyday processing, such as WhatsApp or YouTube compression, resizing and stabilisation, affect PRNU-based "
-    "analysis? RQ3: does combining PRNU with machine learning and deep learning beat the conventional PCE test?",
+ 2: "Five objectives. First, analyse how the PRNU fingerprint behaves in genuine videos and in videos where it was removed "
+    "or forged. Second, identify the features that separate genuine sensor noise from synthetic or manipulated noise. Third, "
+    "develop a hybrid framework that combines PRNU analysis with machine learning and deep learning. Fourth, evaluate how "
+    "robust it is to compression, social-media re-sharing and anti-forensic attacks. Fifth, improve on the conventional PRNU "
+    "test. These objectives lead to three research questions, which I answer on the conclusion slide.",
  3: "Data: three real-camera datasets (VISION, Video-ACID, FloreView; 124 cameras) and eight AI video generators, 27,583 clips. "
     "The manipulated class is created by attacking real videos: PRNU removal, PRNU injection and denoising, plus WhatsApp- and "
     "YouTube-like copies; AI clips also get a real camera's PRNU injected. From the first five I-frames we compute PRNU scores, "
