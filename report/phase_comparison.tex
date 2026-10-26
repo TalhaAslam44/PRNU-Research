@@ -1,0 +1,113 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[T1]{fontenc}\usepackage{lmodern}\usepackage[margin=2cm]{geometry}\usepackage{microtype}
+\usepackage{booktabs}\usepackage{tabularx}\usepackage{array}\usepackage{float}\usepackage{caption}\usepackage{enumitem}
+\usepackage{xcolor}\usepackage[colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+\captionsetup{font=small,labelfont=bf}\setlist{itemsep=2pt,topsep=3pt}\setlength{\emergencystretch}{3em}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\title{\textbf{HVPF: Comparison of All Phases}}
+\author{Talha Aslam\\ \small Supervisor: Dr.\ Hasan Mujtaba \quad Co-supervisor: Dr.\ Muhammad Ishtiaq}
+\date{26 October 2026}
+\begin{document}\maketitle
+\section*{Summary}\begin{itemize}
+\item \textbf{Best result on its own test set:} Phase 3 (stacking), macro F1 0.851, AUC 0.941; the conventional PCE rule reaches AUC 0.549. Phase 1's F1 0.852 came from an easier test set with a shortcut (every WhatsApp clip was genuine).
+\item \textbf{Same clips:} on the 6,535 clips every phase tested, the PCE rule scores the same in all 5-frame runs (AUC 0.572--0.573), so the comparison is fair. Without the real WhatsApp/YouTube copies, Phase 3 stacking (0.796) beats Phase 1's GRU (0.780).
+\item \textbf{Phase 4:} on the Phase 3 test clips, Phase 4 stacking scores 0.824 vs.\ 0.852 (10 frames: 0.835). The change is uneven (Table~\ref{tab:source}): genuine VISION videos are recognised far more often (68\% $\rightarrow$ 85\%), but genuine ACID re-encodes are now often called manipulated (83\% $\rightarrow$ 61\%): the new ACID attacks went through the same encoder. On the clips every phase tested (VISION and GenVidBench), Phase 4 is the best phase (0.868 vs.\ 0.803). Own, larger test set: F1 0.814 (5 frames), 0.827 (10 frames).
+\item \textbf{HVPF-2 (80/20):} same test clips as Phase 3; stacking 0.851 vs.\ 0.852: the split does not change the conclusions.
+\end{itemize}
+\section{What each phase changed}
+\begin{table}[H]\centering\small\begin{tabularx}{\linewidth}{llrY}\toprule Phase & Results & Test clips & Main change \\\midrule
+Phase 1 & 09 Oct & 7,431 & first full pipeline; VISION + 40 ACID videos per camera; 4 generators \\
+Phase 2 & 09 Oct & 21,035 & full Video-ACID, FloreView, platform-like copies of fakes, genuine re-encodes (honest benchmark) \\
+Phase 3 & 12 Oct & 22,867 & PRNU injected into AI clips, ViT, ensembles + stacking, equal-length inputs \\
+HVPF-2 (80/20) & 14 Oct & 22,867 & Phase 3 data; train on 80\% (tune on validation, then refit) \\
+Phase 4 & 20 Oct & 42,083 & ACID attacks, 4 more generators, more genuine copies, safe rule \\
+Phase 4, 10 frames & 20 Oct & 42,083 & Phase 4 with 10 I-frames per clip \\
+\bottomrule\end{tabularx}\caption{Phases. Test clips = clips scored in 5-fold cross-validation (realistic protocol); every clip is tested once, by a model that never saw its camera model.}\end{table}
+\section{Each phase on its own test set}
+\begin{table}[H]\centering\small\setlength{\tabcolsep}{4pt}\begin{tabular}{llcccccccc}\toprule & & \multicolumn{4}{c}{Realistic, 5-fold} & PCE rule & Controlled & \multicolumn{2}{c}{Unseen sources} \\\cmidrule(lr){3-6}\cmidrule(lr){9-10} Phase & Best model & Macro F1 & PVA & AUC & EER & AUC & best F1 & F1 & AUC \\\midrule
+Phase 1 & GRU & 0.852 $\pm$ 0.012 & 0.837 & 0.930 & 0.156 & 0.570 & 0.703 & 0.848 & -- \\
+Phase 2 & XGBoost & 0.792 $\pm$ 0.028 & 0.785 & 0.899 & 0.193 & 0.635 & 0.770 & 0.692 & 0.842 \\
+Phase 3 & Stacking & 0.851 $\pm$ 0.014 & 0.836 & 0.941 & 0.149 & 0.549 & 0.816 & 0.863 & 0.965 \\
+HVPF-2 (80/20) & Stacking & 0.850 $\pm$ 0.015 & 0.838 & 0.941 & 0.147 & 0.549 & 0.818 & 0.893 & 0.978 \\
+Phase 4 & Stacking & 0.814 $\pm$ 0.011 & 0.796 & 0.902 & 0.202 & 0.543 & 0.762 & 0.843 & 0.953 \\
+Phase 4, 10 frames & Stacking & 0.827 $\pm$ 0.012 & 0.809 & 0.913 & 0.189 & 0.552 & 0.755 & 0.902 & 0.983 \\
+\bottomrule\end{tabular}\caption{Not directly comparable across rows: each phase has a different (mostly harder) test set. AUC = genuine vs.\ not genuine. Unseen sources = FloreView + GenBuster, fixed split (Phase 1: GenBuster only).}\end{table}
+\begin{table}[H]\centering\small\setlength{\tabcolsep}{4pt}\begin{tabular}{lcccccc}\toprule Model & Phase 1 & Phase 2 & Phase 3 & HVPF-2 & Phase 4 & P4, 10 fr. \\\midrule
+SVM & 0.818 & 0.770 & 0.769 & 0.780 & 0.741 & 0.761 \\
+XGBoost & 0.842 & 0.792 & 0.794 & 0.799 & 0.758 & 0.776 \\
+GRU & 0.852 & 0.785 & 0.779 & 0.782 & 0.762 & 0.780 \\
+1D-CNN & 0.813 & 0.774 & 0.774 & 0.782 & 0.755 & 0.779 \\
+Transformer & 0.830 & 0.775 & 0.780 & 0.780 & 0.764 & 0.780 \\
+ViT & -- & -- & 0.820 & 0.827 & 0.777 & 0.797 \\
+Ensemble (all) & -- & -- & 0.814 & 0.818 & 0.780 & 0.801 \\
+Ensemble (top-3) & -- & -- & 0.827 & 0.827 & 0.785 & 0.806 \\
+Stacking & -- & -- & 0.851 & 0.850 & 0.814 & 0.827 \\
+\bottomrule\end{tabular}\caption{Macro F1 per model and phase (realistic, 5-fold; each phase on its own test set).}\end{table}
+\section{All phases on the same clips}
+Each block uses only clips that all listed phases tested. The PCE rule is not trained, so it must give the same score in every 5-frame run; it does, which confirms that the clips and features match (the 10-frame run scores PCE on 10 frames).
+\begin{table}[H]\centering\small\setlength{\tabcolsep}{4pt}\begin{tabular}{lcccccc}\toprule \multicolumn{7}{l}{\textbf{A: clips tested in every phase} (6,535 clips)} \\\midrule Model & Phase 1 & Phase 2 & Phase 3 & HVPF-2 & Phase 4 & P4, 10 fr. \\\midrule
+PCE rule (AUC) & 0.573 & 0.572 & 0.573 & 0.573 & 0.573 & 0.577 \\
+XGBoost (F1) & 0.822 & 0.748 & 0.723 & 0.729 & 0.733 & 0.784 \\
+GRU (F1) & 0.835 & 0.748 & 0.704 & 0.717 & 0.758 & 0.793 \\
+ViT (F1) & -- & -- & 0.767 & 0.773 & 0.826 & 0.859 \\
+Stacking (F1) & -- & -- & 0.803 & 0.802 & 0.868 & 0.881 \\
+XGBoost (F1, no real platform copies) & 0.772 & 0.735 & 0.706 & 0.713 & 0.719 & 0.759 \\
+GRU (F1, no real platform copies) & 0.780 & 0.743 & 0.704 & 0.711 & 0.743 & 0.784 \\
+Stacking (F1, no real platform copies) & -- & -- & 0.796 & 0.793 & 0.840 & 0.845 \\
+\bottomrule\end{tabular}\end{table}
+\begin{table}[H]\centering\small\setlength{\tabcolsep}{4pt}\begin{tabular}{lccccc}\toprule \multicolumn{6}{l}{\textbf{B: clips tested in Phases 2--4} (21,035 clips)} \\\midrule Model & Phase 2 & Phase 3 & HVPF-2 & Phase 4 & P4, 10 fr. \\\midrule
+PCE rule (AUC) & 0.632 & 0.633 & 0.633 & 0.633 & 0.630 \\
+XGBoost (F1) & 0.791 & 0.784 & 0.788 & 0.736 & 0.772 \\
+GRU (F1) & 0.785 & 0.766 & 0.768 & 0.737 & 0.769 \\
+ViT (F1) & -- & 0.813 & 0.820 & 0.767 & 0.788 \\
+Stacking (F1) & -- & 0.846 & 0.843 & 0.817 & 0.830 \\
+\bottomrule\end{tabular}\end{table}
+\begin{table}[H]\centering\small\setlength{\tabcolsep}{4pt}\begin{tabular}{lcccc}\toprule \multicolumn{5}{l}{\textbf{C: clips tested in Phases 3--4 (the Phase 3 test set)} (22,867 clips)} \\\midrule Model & Phase 3 & HVPF-2 & Phase 4 & P4, 10 fr. \\\midrule
+PCE rule (AUC) & 0.550 & 0.550 & 0.550 & 0.550 \\
+XGBoost (F1) & 0.795 & 0.800 & 0.752 & 0.780 \\
+GRU (F1) & 0.779 & 0.783 & 0.751 & 0.776 \\
+ViT (F1) & 0.822 & 0.829 & 0.784 & 0.802 \\
+Stacking (F1) & 0.852 & 0.851 & 0.824 & 0.835 \\
+\bottomrule\end{tabular}\end{table}
+\begin{table}[H]\centering\small\begin{tabular}{lccc}\toprule Stacking on the Phase 3 test clips & Genuine & Manipulated & AI \\\midrule
+Phase 3 & 79\% & 82\% & 98\% \\
+HVPF-2 (80/20) & 80\% & 81\% & 98\% \\
+Phase 4 & 77\% & 75\% & 98\% \\
+Phase 4, 10 frames & 79\% & 75\% & 98\% \\
+\bottomrule\end{tabular}\caption{Share of each class recognised (recall), same clips.}\end{table}
+\begin{table}[H]\centering\small\begin{tabular}{lrcccc}\toprule Stacking, Phase 3 test clips & Clips & Phase 3 & HVPF-2 & Phase 4 & P4, 10 fr. \\\midrule
+ACID genuine (originals) & 4,380 & 97\% & 98\% & 97\% & 97\% \\
+ACID genuine re-encodes & 3,168 & 83\% & 83\% & 61\% & 63\% \\
+VISION genuine (native, real WhatsApp/YouTube) & 1,259 & 68\% & 70\% & 85\% & 89\% \\
+VISION genuine re-encodes & 2,400 & 45\% & 47\% & 58\% & 63\% \\
+VISION attacks & 7,200 & 82\% & 81\% & 75\% & 75\% \\
+AI clips (GenVidBench) & 4,460 & 98\% & 98\% & 98\% & 98\% \\
+\bottomrule\end{tabular}\caption{Share recognised correctly by source (same clips). Phase 4 helps genuine VISION videos and hurts genuine ACID re-encodes and VISION attacks.}\label{tab:source}\end{table}
+\section{Phase 4 training experiments}
+XGBoost and GRU retrained on Phase 4 data with parts left out, or with dataset-balanced weights; all predicted every Phase 4 test clip. Old clips = the Phase 3 test set; new clips = added in Phase 4.
+\begin{table}[H]\centering\small\setlength{\tabcolsep}{3.5pt}\begin{tabular}{lcccccc}\toprule XGBoost: training data & F1 old & F1 new & F1 all & ACID genuine & ACID attacks & new-gen.\ AI \\\midrule
+Phase 3 data only & 0.795 & 0.586 & 0.712 & 94\% & 39\% & 84\% \\
+Phase 4, all additions & 0.752 & 0.712 & 0.757 & 88\% & 66\% & 97\% \\
+Phase 4, without ACID attacks & 0.778 & 0.623 & 0.719 & 93\% & 32\% & 97\% \\
+Phase 4, dataset-balanced & 0.752 & 0.715 & 0.759 & 87\% & 67\% & 97\% \\
+\bottomrule\end{tabular}\end{table}
+\begin{table}[H]\centering\small\setlength{\tabcolsep}{3.5pt}\begin{tabular}{lcccccc}\toprule GRU: training data & F1 old & F1 new & F1 all & ACID genuine & ACID attacks & new-gen.\ AI \\\midrule
+Phase 3 data only & 0.779 & 0.577 & 0.703 & 93\% & 45\% & 84\% \\
+Phase 4, all additions & 0.751 & 0.726 & 0.762 & 87\% & 71\% & 97\% \\
+Phase 4, without ACID attacks & 0.775 & 0.607 & 0.711 & 94\% & 31\% & 97\% \\
+Phase 4, dataset-balanced & 0.742 & 0.733 & 0.760 & 86\% & 69\% & 97\% \\
+\bottomrule\end{tabular}\end{table}
+\section{Camera identification (trained ViT + PRNU)}
+\begin{table}[H]\centering\small\begin{tabular}{lcccc}\toprule & \multicolumn{2}{c}{HVPF-2 (no scene grouping)} & \multicolumn{2}{c}{Phase 4 (scene-grouped)} \\\cmidrule(lr){2-3}\cmidrule(lr){4-5} Dataset & ViT & Hybrid & ViT & Hybrid \\\midrule
+VISION & 48\% & 67\% & 50\% & 67\% \\
+ACID & 91\% & 95\% & 91\% & 95\% \\
+FloreView & 93\% & 94\% & 89\% & 90\% \\
+\bottomrule\end{tabular}\caption{Top-1 camera identification on test videos. Scene grouping removes near-duplicate scenes from the test side; the FloreView drop shows that some of the earlier score came from recognising scenes.}\end{table}
+\section{Conclusions}\begin{itemize}
+\item Phase 1's high score was a shortcut; Phase 2 made the benchmark honest; Phase 3 is the best and most reliable result and is the one used for the mid-evaluation.
+\item Training on 80\% instead of 60\% of the camera models (HVPF-2) changes the results by less than the fold-to-fold spread.
+\item Phase 4 adds coverage that Phase 3 lacks (attacks on a second dataset, more generators) and recognises genuine VISION videos much better, but calls more genuine ACID re-encodes manipulated; 10 frames recovers part of the loss and dataset-balanced training does not help. The open problem is separating genuine re-encodes from attacked clips.
+\item In every phase the conventional PCE rule stays near AUC 0.55 for genuine vs.\ not genuine, far below the learned models.
+\end{itemize}
+\noindent\raggedright\small Generated by \texttt{scripts/make\_phase\_comparison.py}; numbers in \texttt{data/results/metrics/phase\_comparison\_all.csv}.
+\end{document}
