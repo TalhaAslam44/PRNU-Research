@@ -1,7 +1,7 @@
 """Phase 5, changes 2 and 3 - reliability-aware fusion and the inconclusive threshold (CPU, ~2 min).
 
 For the Phase 4 predictions (data/phase4/models, as trained) and, when they exist, the Phase 5 ones -
-p5: processing-matched (data/phase5/models), c4: compression-aware evidence (data/phase5/models_c4),
+p5: processing-matched (data/phase5/models), c4: camera-calibrated PRNU evidence (data/phase5/models_c4),
 c4m: both (data/phase5/models_c4m); the matched runs use the matched ViT (data/phase5/models/vit) if
 trained, every other run the Phase 4 ViT - per split:
   stack, stack+safe          exactly Step 8c (scripts/08c_ensemble.py derive(), imported unchanged)

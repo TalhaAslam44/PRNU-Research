@@ -4,7 +4,7 @@
     + reliability fusion     change 2 on the Phase 4 models
     + matched training       change 1 (data/phase5 models), plain stacking
     + matched + reliability  changes 1 and 2
-    + compression-aware      change 4 (data/phase5/models_c4), plain stacking
+    + camera calibration     change 4 (data/phase5/models_c4), plain stacking
     + all four               changes 1, 2 and 4 (data/phase5/models_c4m) with reliability-aware stacking
 Each configuration is scored three ways: its default decision (argmax), the Phase 4 safe operating
 point (+safe: >= 95% genuine accepted on validation), and the three-zone decision with an
@@ -32,7 +32,7 @@ from hvpf.model_data import CLASSES
 P = [f"p_{c}" for c in CLASSES]
 CONFIGS = [("Phase 4", "p4", "stack"), ("+ reliability fusion (2)", "p4", "stack_rel"),
            ("+ matched training (1)", "p5", "stack"), ("+ matched + reliability (1+2)", "p5", "stack_rel"),
-           ("+ compression-aware evidence (4)", "c4", "stack"), ("+ all four (1+2+4)", "c4m", "stack_rel")]
+           ("+ camera calibration (4)", "c4", "stack"), ("+ all four (1+2+4)", "c4m", "stack_rel")]
 ATTACKED = ("VISION-attack", "ACID-attack")
 
 
