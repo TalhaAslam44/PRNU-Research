@@ -111,6 +111,12 @@
       "problemMatcher": []
     },
     {
+      "label": "PHASE 5 · change 4: camera-calibrated PRNU (background, ~1.5 h)",
+      "type": "shell",
+      "command": "chmod +x scripts/run_phase5.sh && mkdir -p data/logs && setsid nohup ./scripts/run_phase5.sh --c4 > data/logs/run_phase5.log 2>&1 < /dev/null & echo 'Phase 5 change 4 started in the background. Follow it with task: PHASE 5 · progress'",
+      "problemMatcher": []
+    },
+    {
       "label": "PHASE 5 · also matched ViT (background, ~7 h, overnight)",
       "type": "shell",
       "command": "chmod +x scripts/run_phase5.sh && mkdir -p data/logs && setsid nohup ./scripts/run_phase5.sh --vit > data/logs/run_phase5.log 2>&1 < /dev/null & echo 'Phase 5 (with ViT) started in the background. Follow it with task: PHASE 5 · progress'",
@@ -119,7 +125,7 @@
     {
       "label": "PHASE 5 · progress",
       "type": "shell",
-      "command": "cat data/logs/run_phase5.log 2>/dev/null; for f in p5_models p5_vit; do [ -f data/logs/$f.log ] && { echo \"== $f\"; grep -v -i warn data/logs/$f.log | tail -4; }; done; pgrep -f 'run_phase[5].sh' > /dev/null && echo '>>> still running' || { echo '>>> not running'; cat data/phase5/metrics/phase5_comparison.txt 2>/dev/null; }",
+      "command": "cat data/logs/run_phase5.log 2>/dev/null; for f in p5_models p5_c4_models p5_vit; do [ -f data/logs/$f.log ] && { echo \"== $f\"; grep -v -i warn data/logs/$f.log | tail -4; }; done; pgrep -f 'run_phase[5].sh' > /dev/null && echo '>>> still running' || { echo '>>> not running'; cat data/phase5/metrics/phase5_comparison.txt 2>/dev/null; }",
       "problemMatcher": []
     },
     {

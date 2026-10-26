@@ -30,6 +30,40 @@ from hvpf.model_data import (CLASSES, FRAME_GROUPS, feature_columns, frame_colum
 step8 = phase5.load_step("08_models.py")
 
 
+def fit_split(per_video, frames, vcols, fcols, y, tr, va, evaluate, cross, name, window, models, sw):
+    """Step 8's models on one split with per-clip training weights sw (None = Step 8's class weights);
+    prediction rows for the evaluated clips (also used by scripts/p5_c4_models.py)."""
+    rows = []
+    meta = per_video.loc[evaluate, ["sample_id", "label", "source", "variant", "social", "alpha", "stabilized",
+                                    "claimed_device"]].assign(
+        split_name=name, part=np.select([cross[evaluate], va[evaluate]], ["crossdataset", "val"], "test"))
+    if "baseline" in models:
+        rows.append(meta.assign(model="baseline", score_organic=per_video.loc[evaluate, "w_pce0_claimed"].to_numpy(),
+                                threshold=float(slog(60.0))))
+    imp = SimpleImputer(strategy="median").fit(per_video.loc[tr, vcols])
+    sc = StandardScaler().fit(imp.transform(per_video.loc[tr, vcols]))
+    X = np.nan_to_num(sc.transform(imp.transform(per_video[vcols])))
+    for model in [m for m in models if m in ("svm", "xgb")]:
+        t0 = time.time()
+        _, prob = (step8.fit_svm if model == "svm" else step8.fit_xgb)(X[tr], y[tr], X[va], y[va], sw=sw)
+        p = prob(X[evaluate])
+        rows.append(meta.assign(model=model, **{f"p_{c}": p[:, i] for i, c in enumerate(CLASSES)}))
+        print(f"  {name} {model:11s} {time.time() - t0:6.1f}s", flush=True)
+    seq_models = [m for m in models if m in ("gru", "cnn", "transformer")]
+    if seq_models:
+        S, M = sequences(frames, per_video.sample_id.to_numpy(), fcols, window)
+        mu, sd = S[tr][M[tr]].mean(0), S[tr][M[tr]].std(0) + 1e-6
+        S = np.where(M[..., None], (S - mu) / sd, 0).astype(np.float32)
+        data = {"train": (S[tr], M[tr], X[tr]), "val": (S[va], M[va], X[va])}
+        for model in seq_models:
+            t0 = time.time()
+            _, predict = step8.fit_seq(model, data, y[tr], y[va], window, sw=sw)
+            p = predict(S[evaluate], M[evaluate], X[evaluate])
+            rows.append(meta.assign(model=model, **{f"p_{c}": p[:, i] for i, c in enumerate(CLASSES)}))
+            print(f"  {name} {model:11s} {time.time() - t0:6.1f}s", flush=True)
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--protocol", choices=["realistic", "controlled"], default="realistic")
@@ -61,33 +95,8 @@ def main():
         after = phase5.attack_share(y[tr], condition[tr], sw)
         print(f"  {name}: attack share of the training weight per matched condition (Phase 4 -> Phase 5): "
               + ", ".join(f"{k} {before[k]:.2f}->{after[k]:.2f}" for k in after), flush=True)
-        meta = per_video.loc[evaluate, ["sample_id", "label", "source", "variant", "social", "alpha", "stabilized",
-                                        "claimed_device"]].assign(
-            split_name=name, part=np.select([cross[evaluate], va[evaluate]], ["crossdataset", "val"], "test"))
-        if "baseline" in args.models:
-            out_rows.append(meta.assign(model="baseline", score_organic=per_video.loc[evaluate, "w_pce0_claimed"].to_numpy(),
-                                        threshold=float(slog(60.0))))
-        imp = SimpleImputer(strategy="median").fit(per_video.loc[tr, vcols])
-        sc = StandardScaler().fit(imp.transform(per_video.loc[tr, vcols]))
-        X = np.nan_to_num(sc.transform(imp.transform(per_video[vcols])))
-        for model in [m for m in args.models if m in ("svm", "xgb")]:
-            t0 = time.time()
-            _, prob = (step8.fit_svm if model == "svm" else step8.fit_xgb)(X[tr], y[tr], X[va], y[va], sw=sw)
-            p = prob(X[evaluate])
-            out_rows.append(meta.assign(model=model, **{f"p_{c}": p[:, i] for i, c in enumerate(CLASSES)}))
-            print(f"  {name} {model:11s} {time.time() - t0:6.1f}s", flush=True)
-        seq_models = [m for m in args.models if m in ("gru", "cnn", "transformer")]
-        if seq_models:
-            S, M = sequences(frames, per_video.sample_id.to_numpy(), fcols, args.window)
-            mu, sd = S[tr][M[tr]].mean(0), S[tr][M[tr]].std(0) + 1e-6
-            S = np.where(M[..., None], (S - mu) / sd, 0).astype(np.float32)
-            data = {"train": (S[tr], M[tr], X[tr]), "val": (S[va], M[va], X[va])}
-            for model in seq_models:
-                t0 = time.time()
-                _, predict = step8.fit_seq(model, data, y[tr], y[va], args.window, sw=sw)
-                p = predict(S[evaluate], M[evaluate], X[evaluate])
-                out_rows.append(meta.assign(model=model, **{f"p_{c}": p[:, i] for i, c in enumerate(CLASSES)}))
-                print(f"  {name} {model:11s} {time.time() - t0:6.1f}s", flush=True)
+        out_rows += fit_split(per_video, frames, vcols, fcols, y, tr, va, evaluate, cross, name, args.window,
+                              args.models, sw)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     path = args.out_dir / f"{args.protocol}_{args.scheme}_{tag}.parquet"

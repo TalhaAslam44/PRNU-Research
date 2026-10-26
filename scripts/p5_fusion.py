@@ -1,13 +1,14 @@
 """Phase 5, changes 2 and 3 - reliability-aware fusion and the inconclusive threshold (CPU, ~2 min).
 
-For the Phase 4 predictions (data/phase4/models, as trained) and, when they exist, the Phase 5
-processing-matched ones (data/phase5/models; ViT from data/phase5/models/vit if trained, else the
-Phase 4 ViT), per split:
+For the Phase 4 predictions (data/phase4/models, as trained) and, when they exist, the Phase 5 ones -
+p5: processing-matched (data/phase5/models), c4: compression-aware evidence (data/phase5/models_c4),
+c4m: both (data/phase5/models_c4m); the matched runs use the matched ViT (data/phase5/models/vit) if
+trained, every other run the Phase 4 ViT - per split:
   stack, stack+safe          exactly Step 8c (scripts/08c_ensemble.py derive(), imported unchanged)
   stack_rel, stack_rel+safe  reliability-aware stacking (hvpf.phase5.rel_design / fit_rel_stack)
   tau_lo, tau_hi             three-zone (accept / inconclusive / accuse) thresholds of stack and
                              stack_rel, set on validation (hvpf.phase5.three_zone_thresholds)
-Writes data/phase5/models/fusion_<p4|p5>_<protocol>_<scheme>_w<N>.parquet (with the PCE baseline rows).
+Writes data/phase5/models/fusion_<p4|p5|c4|c4m>_<protocol>_<scheme>_w<N>.parquet (with the PCE baseline rows).
 
 Usage:
     python scripts/p5_fusion.py
@@ -27,21 +28,25 @@ step8c = phase5.load_step("08c_ensemble.py")
 P = [f"p_{c}" for c in CLASSES]
 
 
+SOURCES = {"p5": "models", "c4": "models_c4", "c4m": "models_c4m"}
+
+
 def inputs(source, protocol, scheme, window):
-    """Base model predictions (incl. the ViT) of Phase 4 or Phase 5, and where the ViT came from."""
+    """Base model predictions (incl. the ViT) of Phase 4 or a Phase 5 run, and where the ViT came from."""
     name = f"{protocol}_{scheme}_all_w{window}.parquet"
     vit_name = f"{protocol}_{scheme}_w{window}.parquet"
+    vit = phase5.PHASE4 / "models" / "vit" / vit_name
     if source == "p4":
         pred = pd.read_parquet(phase5.PHASE4 / "models" / name)
         pred = pred[~pred.model.str.fullmatch(step8c.DERIVED)]
-        vit = phase5.PHASE4 / "models" / "vit" / vit_name
     else:
-        path = phase5.PHASE5 / "models" / name
+        path = phase5.PHASE5 / SOURCES[source] / name
         if not path.exists():
             return None, None
         pred = pd.read_parquet(path)
-        vit = phase5.PHASE5 / "models" / "vit" / vit_name
-        vit = vit if vit.exists() else phase5.PHASE4 / "models" / "vit" / vit_name
+        matched_vit = phase5.PHASE5 / "models" / "vit" / vit_name
+        if source in ("p5", "c4m") and matched_vit.exists():
+            vit = matched_vit
     if vit.exists():
         pred = pd.concat([pred, pd.read_parquet(vit)], ignore_index=True)
     return pred, vit
@@ -84,7 +89,7 @@ def main():
         per_video, _ = load(phase5.PHASE4 / "features", window)
         rel = per_video.set_index("sample_id")[phase5.RELIABILITY]
         for scheme in ("folds", "fixed"):
-            for source in ("p4", "p5"):
+            for source in ("p4", *SOURCES):
                 pred, vit = inputs(source, args.protocol, scheme, window)
                 if pred is None:
                     continue

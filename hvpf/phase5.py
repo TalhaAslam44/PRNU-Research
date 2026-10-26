@@ -1,6 +1,7 @@
 """Phase 5 (experiment, separate from Phases 3 and 4): processing-matched training, reliability-aware
-fusion and an "inconclusive" output. The Phase 3 / Phase 4 code is reused by import, never changed;
-Phase 5 reads the frozen Phase 4 features (data/phase4/features) and writes only to data/phase5/.
+fusion, an "inconclusive" output and camera-calibrated PRNU evidence. The Phase 3 / Phase 4 code is
+reused by import, never changed; Phase 5 reads the frozen Phase 4 features (data/phase4/features) and
+writes only to data/phase5/.
 
 1. Processing-matched training. Every attack is encoded like the genuine `reencode` control (libx264,
    CRF attacks.crf = 20, same WhatsApp-/YouTube-like copies), but in that processing condition 80-91% of
@@ -22,11 +23,18 @@ Phase 5 reads the frozen Phase 4 features (data/phase4/features) and writes only
    tau_hi lets at most ERROR_CAP of the attacked and at most ERROR_CAP of the AI clips be accepted.
    (A single threshold on the top class probability needed 44% inconclusive for the same false-
    accusation rate, so it was dropped.)
+4. Camera-calibrated PRNU evidence (camera_calibration): the clip's PRNU score relative to the claimed
+   camera's usual genuine score. Tried first and dropped: a compression-aware correlation predictor
+   (Chen et al., TIFS 2008) on 120x120 blocks of single I-frames - after video compression the block
+   correlation is mostly noise (expected vs observed r = 0.15 on genuine test blocks) and, at clip level,
+   compression and content explain little of a genuine clip's PRNU strength (r = 0.22-0.33): the camera
+   does. Quick check (XGBoost, 5-fold, 5 frames): F1 0.758 -> 0.773 with 10 calibration videos per camera.
 """
 import importlib.util
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score
 from sklearn.model_selection import GroupKFold
@@ -111,6 +119,37 @@ def fit_rel_stack(z, y, groups, cs=(0.01, 0.03, 0.1, 0.3, 1.0)):
         if best is None or np.mean(f1) > best[0]:
             best = (np.mean(f1), c)
     return model(best[1]).fit(z, y), best[1]
+
+
+CALIBRATION = ["cal_pce0", "cal_ncc", "dev_pce0", "dev_ncc"]
+
+
+def camera_calibration(per_video, n_videos=10, seed=0):
+    """Change 4: camera-calibrated PRNU evidence. How strong a genuine fingerprint match is depends
+    mostly on the camera (sensor, stabilisation), so the clip's PRNU score is compared with the claimed
+    camera's usual score: the median w_pce0 / w_ncc of `n_videos` genuine native videos of that camera
+    (reference material an examiner records with the camera), drawn at random but never the clip's own
+    source video (leave-one-video-out). Adds CALIBRATION columns; per_video comes from model_data.load
+    (w_* = the window's clip scores, PCE already signed-log)."""
+    content = per_video.sample_id.str.split("__").str[0].to_numpy()
+    native = ((per_video.label == "organic") & per_video.source.isin(["VISION", "ACID", "FloreView"])
+              & (per_video.variant.astype(str) == "native")).to_numpy()
+    rng = np.random.default_rng(seed)
+    pools = {}
+    for d in np.unique(per_video.device[native]):
+        idx = np.flatnonzero(native & (per_video.device == d).to_numpy())
+        pools[d] = idx[rng.permutation(len(idx))]
+    pce0, ncc = per_video.w_pce0_claimed.to_numpy(), per_video.w_ncc_claimed.to_numpy()
+    cal = np.full((len(per_video), 2), np.nan)
+    for i, (d, c) in enumerate(zip(per_video.claimed_device, content)):
+        pool = pools.get(d)
+        if pool is None:
+            continue
+        pick = pool[content[pool] != c][:n_videos]
+        if len(pick):
+            cal[i] = np.median(pce0[pick]), np.median(ncc[pick])
+    return pd.DataFrame({"cal_pce0": cal[:, 0], "cal_ncc": cal[:, 1], "dev_pce0": pce0 - cal[:, 0],
+                         "dev_ncc": ncc / (np.abs(cal[:, 1]) + 1e-3)}, index=per_video.index)
 
 
 def three_zone_thresholds(p_val, y_val, cap=ERROR_CAP):
