@@ -1,4 +1,4 @@
-# HANDOFF: state of the project on 21 Oct 2026
+# HANDOFF: state of the project on 29 Oct 2026
 
 Read this first in a new Claude session (any account). Start the new session in `/home/talhaaslam/PRNU-Research`
 and say: "Read HANDOFF.md and continue the project."
@@ -11,11 +11,12 @@ and say: "Read HANDOFF.md and continue the project."
   SRM noise residuals, and stacking. RQ1 features, RQ2 processing effects, RQ3 hybrid vs conventional PCE rule.
 * Repo: https://github.com/TalhaAslam44/PRNU-Research (public). `main` = original project (60/20/20 split, phases 1-4);
   branch `hvpf-2` = 80/20 study + trained camera identification (folder `~/hvpf-2`, separate copy, frames symlinked).
-* Mid-evaluation presentation to a panel is coming: `report/mid_evaluation_report.pdf` (16 pages, architecture diagram,
-  every step explained, panel Q&A). It still says Phase 4 is "running": update it with the Phase 4 results below.
+* Mid-evaluation (Phase 3 results only): `report/mid_evaluation_report.pdf`, poster `report/mid_evaluation_poster.pptx`
+  (built by `report/poster/build_poster.py`). All phases compared in `report/phase_comparison.pdf`.
 
 ## User preferences (keep following)
-* Always tell the user **which file to run, where and how** (VS Code, Terminal -> Run Task...; tasks in `.vscode/tasks.json`).
+* Always tell the user **which file to run, where and how**. The user prefers ONE bash command to paste into the VS Code
+  terminal (`setsid nohup ./scripts/... > data/logs/....log 2>&1 < /dev/null &`) plus a one-line progress check.
 * Long jobs run detached (`setsid nohup ... &`) and write logs to `data/logs/`; the user has a single GPU (RTX 3080), keep one
   GPU job at a time except Step 8 next to the ViT.
 * Never handle passwords. The user logs in to GitHub themselves (`gh auth`); commit email is the noreply address
@@ -43,7 +44,8 @@ and say: "Read HANDOFF.md and continue the project."
 | 2 | 24,599 | XGBoost | 0.792 | 0.899 | honest benchmark |
 | 3 | 27,583 | stacking | 0.851 | 0.941 | + ViT, ensembles, PRNU injected into AI clips; PCE rule AUC 0.549 |
 | hvpf-2 | 27,583 | stacking | 0.850 | 0.941 | 80/20: single models +0.006 F1 only; unseen sources F1 0.893 |
-| **4** | **46,799** | **stacking** | **0.814** | **0.902** | harder, bigger test set (see below) |
+| 4 | 46,799 | stacking | 0.814 | 0.902 | harder, bigger test set (see below) |
+| **5** | 46,799 | stacking, changes 1+2+4 | **0.826** (10 frames **0.842**) | 0.911 (0.922) | same data as Phase 4; see Phase 5 |
 
 ### Phase 4 (finished 20 Oct 22:08; data added: 9,504 ACID attacks, 3,712 genuine platform copies, 6,000 AI clips from SVD/Mora/
 Text2Video-Zero/Pika; ModelScope and VideoCrafter2 downloaded but unused, < 480 px)
@@ -60,16 +62,32 @@ Text2Video-Zero/Pika; ModelScope and VideoCrafter2 downloaded but unused, < 480 
   (trained ViT 49.7 / 90.9 / 89.0; PRNU 55.9 / 57.5 / 25.9; PDC-ViT reported 94.3 / 74.77). Learned fusion was no better than
   the simple hybrid. FloreView dropped ~4 points vs hvpf-2 after the near-duplicate scene fix (leakage was real).
 
+### Phase 5 (26-27 Oct; experiment in NEW files only: `hvpf/phase5.py`, `scripts/p5_*.py`, `scripts/run_phase5.sh`;
+reads `data/phase4/features`, writes `data/phase5/`; table `data/phase5/metrics/phase5_comparison.txt`)
+* Change 1 processing-matched training weights (CRF-20 condition: attack share of training weight 0.90 -> 0.63),
+  2 reliability-aware stacking (`stack_rel`), 3 three-zone decision accept / inconclusive / accuse (5% error caps on
+  validation), 4 camera-calibrated PRNU evidence (clip PCE vs the claimed camera's median over 10 genuine natives,
+  leave-one-video-out). Re-derived Phase 4 stacking matches Phase 4 exactly (check).
+* Only change 4 really raises scores: unseen cameras 10 frames F1 0.827 -> 0.836 (4) / 0.842 (1+2+4, Phase 4 ViT), AUC 0.913 ->
+  0.922; unseen datasets F1 0.902 -> 0.925, AUC 0.983 -> 0.991, FloreView genuine 82 -> 88%. On Phase 3's own test clips
+  (22,867): 1+2+4 10 frames F1 0.854 vs Phase 3 0.852. Three-zone: ~7% genuine accused, ~6% attacks accepted, ~70% decided.
+* Negative results: block-level compression-aware correlation predictor (Chen et al. 2008) has no signal on video
+  (r = 0.15), dropped. Matched ViT (`p5_vit.py`, overnight run): CRF-20 genuine 58 -> 72% but F1 0.842 -> 0.833; keep the
+  Phase 4 ViT. NOTE: that run overwrote `fusion_c4m_*` / `fusion_p5_*` with the matched-ViT version; to reproduce 0.842,
+  move `data/phase5/models/vit` aside and re-run `python scripts/p5_fusion.py && python scripts/p5_compare.py`.
+
 ## Git state
-`main` is ahead of `origin/main` by 3-4 commits (Phase 4 code, generators, mid-evaluation report, this file): NOT pushed.
-`hvpf-2` branch is pushed.
+`main` holds everything up to Phase 5 (push it if `git status` says "ahead"). `hvpf-2` branch is pushed.
+
+## Moving to a new PC
+Restore under the same user name `talhaaslam` and the same folders: parquet/CSV files store absolute frame paths
+(`/home/talhaaslam/PRNU-Research/data/frames/...`), ATTACK/SYNTH frames are symlinks to `~/PRNU-Research-data/frames/`,
+`config.yaml` points at `/media/talhaaslam/Disk/datasets` and `~/Data/datasets/VideoACID/Full` (`~/Data` -> the data drive).
+Not backed up (recreate): `.venv` (`python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`), tectonic, 7zz, gh,
+ffmpeg. Noiseprint++ weights are in `third_party/noiseprintpp/` (inside the project backup; never commit them).
 
 ## Suggested next steps
-1. Same-clips comparison Phase 3 vs Phase 4 (like the earlier phase comparison) to separate "harder test" from "worse models".
-2. Generate the Phase 4 report: `scripts/make_results_report.py` currently targets Phase 3 (reads `data/phase2` for comparison);
-   point it at `data/phase3` for comparison and write `report/results_phase4.tex/pdf`; update the mid-evaluation report's Phase 4 rows.
-3. Fix the false accusations: more/better genuine re-encoded + platform-copy training data (esp. ACID, few I-frames), use 10 frames
-   as the main setting, consider an "uncertain" output.
-4. For publication: same-protocol baselines (PDC-ViT-style model, one published AI-video detector), an adaptive attack, real
-   WhatsApp/YouTube uploads, significance tests / bootstrap CIs.
-5. Push to GitHub when the user asks.
+1. Significance: bootstrap CIs / paired test for Phase 4 vs Phase 5 (gains ~0.015 F1, fold std ~0.012).
+2. Phase 5 report PDF (changes, tables, negative results, same-clips comparison with Phase 3).
+3. For publication: same-protocol baselines (PDC-ViT-style model, one published AI-video detector), an adaptive attack, real
+   WhatsApp/YouTube uploads.
