@@ -2,9 +2,10 @@
 # Relative paths are resolved against the project root.
 
 paths:
-  vision_root: /media/talhaaslam/Disk/datasets/Vision-Dataset
-  acid_root: ~/Data/datasets/VideoACID/Full      # train/ and eval/ hold one tar.gz and its extracted folder per model
-  floreview_root: /media/talhaaslam/Disk/datasets/FloreView
+  # datasets on the external drive "New Volume"; ~/DATASETS links to its Thesis/DATASETS folder
+  vision_root: ~/DATASETS/Vision-Dataset
+  acid_root: ~/Data/datasets/VideoACID/Full      # not on this PC (re-download only if needed); frames are in data/frames/ACID
+  floreview_root: ~/DATASETS/FloreView
   data_dir: data
   metadata_dir: data/metadata
   frames_dir: data/frames
@@ -90,7 +91,7 @@ attacks:
 
 
 synthetic:
-  root: /media/talhaaslam/Disk/datasets/synthetic/extracted
+  root: ~/DATASETS/synthetic/extracted
   # role sample: train/val/test by claimed device; crossdataset: unseen-source test set only
   sources:
     - {dir: OpenAI_Sora, generator: Sora, dataset: GenVidBench, role: sample}
