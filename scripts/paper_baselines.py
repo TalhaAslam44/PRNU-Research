@@ -102,6 +102,19 @@ def train_cnn(items, val_score, epochs, lr, batch, workers, patience=2, seed=0):
     return net, pre
 
 
+def local_model(repo):
+    """Folder with the cached config + weights of a Hugging Face model (they can sit in different snapshot
+    folders of the cache); links them together under data/paper/models/, nothing is downloaded."""
+    snaps = sorted((HF / f"models--{repo.replace('/', '--')}" / "snapshots").glob("*"))
+    files = {f.name: f for d in snaps for f in d.iterdir()}
+    out = OUT.parent / "models" / repo.replace("/", "--")
+    out.mkdir(parents=True, exist_ok=True)
+    for name in ("config.json", "model.safetensors"):
+        if not (out / name).exists():
+            (out / name).symlink_to(files[name].resolve())
+    return out
+
+
 class Frozen(nn.Module):
     """Frozen foundation-model encoder: uint8 luma crops -> one embedding per crop."""
 
@@ -109,7 +122,7 @@ class Frozen(nn.Module):
         super().__init__()
         from transformers import AutoModel
         repo = {"clip_b16": "openai/clip-vit-base-patch16", "dinov2_b": "facebook/dinov2-base"}[kind]
-        model = AutoModel.from_pretrained(repo, local_files_only=True)
+        model = AutoModel.from_pretrained(local_model(repo), local_files_only=True)
         self.kind = kind
         self.enc = model.vision_model if kind == "clip_b16" else model
         self.proj = model.visual_projection if kind == "clip_b16" else None
