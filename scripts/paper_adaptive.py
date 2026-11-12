@@ -143,6 +143,7 @@ def main():
     ap.add_argument("--limit", type=int, help="number of target videos (pipeline check)")
     ap.add_argument("--predict-only", action="store_true", help="re-score the saved features with --bundle")
     ap.add_argument("--workers", type=int, default=12)
+    ap.add_argument("--suffix", default="", help="added to candidates / summary file names (e.g. _aug for another bundle)")
     args = ap.parse_args()
     warnings.filterwarnings("ignore")
     cfg = load_config()
@@ -177,9 +178,9 @@ def main():
     c = pv[["sample_id", "content_id", "device", "claimed_device", "kind", "beta", "alpha", "crf", "sigma", "standard",
             "stabilized"]].assign(**{f"p_{k}": p[:, i] for i, k in enumerate(CLASSES)}, pred=pred, zone=zone,
                                   pce_pass=pv.w_pce0_claimed.to_numpy() > slog(60.0))
-    c.to_parquet(out / "candidates.parquet", index=False)
+    c.to_parquet(out / f"candidates{args.suffix}.parquet", index=False)
     text = summary(c)
-    (out / "summary.txt").write_text(text + "\n")
+    (out / f"summary{args.suffix}.txt").write_text(text + "\n")
     print(text)
 
 

@@ -36,10 +36,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, default=phase5.ROOT / "data" / "paper" / "bundle_fixed_w10")
     ap.add_argument("--window", type=int, default=10)
+    ap.add_argument("--features", type=Path, help="feature folder (default: data/paper/features_newpc)")
     ap.add_argument("--quick", action="store_true", help="1 ViT epoch on 5%% of the frames (pipeline check only)")
     args = ap.parse_args()
     warnings.filterwarnings("ignore")
-    pred = train_bundle(args.out, window=args.window, quick=args.quick)
+    kw = {"features": args.features} if args.features else {}
+    pred = train_bundle(args.out, window=args.window, quick=args.quick, **kw)
     print("\nsaved bundle -> " + str(args.out))
     ref = pd.read_parquet(phase5.PHASE5 / "models" / f"fusion_c4m4_realistic_fixed_w{args.window}.parquet")
     report(pred, "saved bundle")

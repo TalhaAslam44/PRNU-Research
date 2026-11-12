@@ -217,12 +217,17 @@ class ClipFeatures:
             vrows.append(v)
         return pd.concat(fparts, ignore_index=True), pd.DataFrame(vrows)
 
-    def table(self, samples, window):
-        """samples: DataFrame with hvpf.samples.SAMPLE_COLS; returns load(window)-format (per_video, frames)."""
+    def raw(self, samples):
+        """Step 7 + 7b output tables (videos, frames, noiseprint_frames, noiseprint_videos) as the steps write them."""
         res = self.pool.map(step7.process, samples.to_dict("records"), chunksize=1)
         frames = pd.concat([f for f, _ in res], ignore_index=True)
         videos = samples.merge(pd.DataFrame([v for _, v in res]), on="sample_id")
         np_frames, np_videos = self._noiseprint(samples)
+        return videos, frames, np_frames, np_videos
+
+    def table(self, samples, window):
+        """samples: DataFrame with hvpf.samples.SAMPLE_COLS; returns load(window)-format (per_video, frames)."""
+        videos, frames, np_frames, np_videos = self.raw(samples)
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             videos.to_parquet(tmp / "videos.parquet", index=False)
