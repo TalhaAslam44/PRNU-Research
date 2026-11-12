@@ -2,7 +2,7 @@
 
 For the Phase 4 predictions (data/phase4/models, as trained) and, when they exist, the Phase 5 ones -
 p5: processing-matched (data/phase5/models), c4: camera-calibrated PRNU evidence (data/phase5/models_c4),
-c4m: both (data/phase5/models_c4m); the matched runs use the matched ViT (data/phase5/models/vit) if
+c4m: both (data/phase5/models_c4m), c4m4: the same with the Phase 4 ViT; p5 and c4m use the matched ViT (data/phase5/models/vit) if
 trained, every other run the Phase 4 ViT - per split:
   stack, stack+safe          exactly Step 8c (scripts/08c_ensemble.py derive(), imported unchanged)
   stack_rel, stack_rel+safe  reliability-aware stacking (hvpf.phase5.rel_design / fit_rel_stack)
@@ -28,7 +28,7 @@ step8c = phase5.load_step("08c_ensemble.py")
 P = [f"p_{c}" for c in CLASSES]
 
 
-SOURCES = {"p5": "models", "c4": "models_c4", "c4m": "models_c4m"}
+SOURCES = {"p5": "models", "c4": "models_c4", "c4m": "models_c4m", "c4m4": "models_c4m"}   # c4m4: c4m with the Phase 4 ViT
 
 
 def inputs(source, protocol, scheme, window):
@@ -82,6 +82,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--protocol", default="realistic")
     ap.add_argument("--windows", nargs="*", type=int, default=[5, 10])
+    ap.add_argument("--sources", nargs="*", default=["p4", *SOURCES], help="which runs to fuse (default: all)")
     args = ap.parse_args()
     out_dir = phase5.PHASE5 / "models"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -89,7 +90,7 @@ def main():
         per_video, _ = load(phase5.PHASE4 / "features", window)
         rel = per_video.set_index("sample_id")[phase5.RELIABILITY]
         for scheme in ("folds", "fixed"):
-            for source in ("p4", *SOURCES):
+            for source in args.sources:
                 pred, vit = inputs(source, args.protocol, scheme, window)
                 if pred is None:
                     continue
