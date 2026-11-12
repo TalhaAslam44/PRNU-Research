@@ -31,6 +31,7 @@ writes only to data/phase5/.
    does. Quick check (XGBoost, 5-fold, 5 frames): F1 0.758 -> 0.773 with 10 calibration videos per camera.
 """
 import importlib.util
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -51,8 +52,12 @@ ERROR_CAP = 0.05
 
 def load_step(filename):
     """Import a numbered pipeline script (e.g. 08_models.py) as a module without running it."""
-    spec = importlib.util.spec_from_file_location(Path(filename).stem.replace("-", "_"), ROOT / "scripts" / filename)
+    name = Path(filename).stem.replace("-", "_")
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / filename)
     module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module                # registered, so its functions can be sent to worker processes
     spec.loader.exec_module(module)
     return module
 
