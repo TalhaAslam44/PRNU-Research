@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>HVPF Complete Results</title>
+<style>
+@page { size: A4; margin: 16mm 15mm; }
+:root { --ink:#1b1f24; --muted:#5a6470; --line:#d5dae0; --accent:#1f5fa8; --good:#1d7a3e; --bad:#b23a2e; --soft:#f3f6fa; }
+body { font: 10.3pt/1.45 "Segoe UI", "DejaVu Sans", Arial, sans-serif; color:var(--ink); background:#fff; margin:0; }
+h1 { font-size:20pt; margin:0 0 2pt; color:var(--accent); }
+h2 { font-size:13.5pt; margin:18pt 0 5pt; padding-bottom:3pt; border-bottom:2px solid var(--accent); break-after:avoid; }
+h3 { font-size:11pt; margin:11pt 0 4pt; break-after:avoid; }
+p { margin:4pt 0; }
+.sub { color:var(--muted); margin-bottom:10pt; }
+table { border-collapse:collapse; width:100%; margin:5pt 0 7pt; font-size:9.3pt; break-inside:avoid; }
+th, td { border-bottom:1px solid var(--line); padding:3pt 5pt; text-align:right; }
+th { background:var(--soft); font-weight:600; }
+th:first-child, td:first-child { text-align:left; }
+tr.ours td { font-weight:700; background:#eef5ee; }
+.box { background:var(--soft); border-left:4px solid var(--accent); padding:6pt 9pt; margin:6pt 0; break-inside:avoid; }
+.warn { border-left-color:var(--bad); background:#fbf1f0; }
+.ok { border-left-color:var(--good); background:#eef6f0; }
+.g { color:var(--good); font-weight:600; } .b { color:var(--bad); font-weight:600; }
+ul { margin:3pt 0 3pt 16pt; padding:0; } li { margin:1.5pt 0; }
+img { max-width:100%; display:block; margin:6pt auto; break-inside:avoid; }
+.small { font-size:8.6pt; color:var(--muted); }
+.pb { break-before:page; }
+dl { margin:4pt 0; } dt { font-weight:700; margin-top:4pt; } dd { margin:0 0 0 12pt; }
+</style></head><body>
+
+<h1>HVPF: complete results, base-paper comparison, and what each number means</h1>
+<div class="sub">Hybrid Video Provenance Framework · Talha Aslam (24i-8067), MS(DS), FAST-NUCES · results as of 13 Nov 2026</div>
+
+<div class="box ok"><b>The paper in one paragraph.</b>
+Conventional camera verification checks a video's PRNU (sensor-noise fingerprint) against the claimed camera with the PCE &gt; 60 rule.
+We show this rule is easy to fool on video. If a real camera's fingerprint is copied into an AI-generated clip or into another camera's video, the
+rule accepts <b>95.8–98.5%</b> of the forgeries, the same failure Khan et al. (2025) reported for still images.
+HVPF combines PRNU, Noiseprint++, temporal noise consistency, residual/FFT statistics and a ViT on noise residuals, with three new
+components: processing-matched training, reliability-aware fusion and camera-calibrated PRNU. It accepts <b>0.0–0.3%</b> of those forgeries, and on
+cameras it never saw in training it beats three standard detectors (EfficientNet-B4, UnivFD-style CLIP, DINOv2) at a significant margin.
+An attacker who can query the system can still beat it (67% / 87% evasion). Our compression-diverse version <b>HVPF-R</b> cuts usable
+forgeries from 49% to 3.6%.</div>
+
+<h2>1. The task and how to read the numbers</h2>
+<p>Every test clip (first 10 I-frames, 480×480 centre crop) belongs to one of three classes:</p>
+<ul>
+<li><b>Genuine (organic):</b> a real video from the camera it claims to come from, possibly re-shared (WhatsApp/YouTube-style re-encoding).</li>
+<li><b>Attacked (manipulated):</b> a real video whose fingerprint was tampered with. <i>Injection</i> copies another camera's fingerprint in, so the video
+falsely claims that camera; <i>removal</i> subtracts the true fingerprint, so the video can't be traced. α is the strength (1 = full, 0.5 = half).</li>
+<li><b>AI (synthetic):</b> generated video (Sora, Kling, CogVideoX, OpenSora from GenVidBench; GenBuster for unseen generators), some with a
+real camera's PRNU injected (the "Khan-style" attack).</li>
+</ul>
+
+<h3>Test conditions</h3>
+<dl>
+<dt>Unseen cameras (5-fold, 42,083 clips, 79 cameras)</dt>
+<dd>The cameras are split into 5 groups by <i>camera model</i>. Each group is tested once by a model trained on the other four, so every number
+comes from cameras whose model never appeared in training. This is the <b>main result</b>.</dd>
+<dt>Unseen datasets (4,716 clips, 124 cameras)</dt>
+<dd>FloreView phones (genuine) and GenBuster generators (AI) were never used in training at all, so this tests generalisation to new data
+sources. It has no attacked class, so only genuine vs AI is measured.</dd>
+<dt>Fixed split</dt>
+<dd>A single 60/20/20 train/val/test split, used for the adaptive attack and HVPF-R, which are too expensive to run for all 5 folds.</dd>
+</dl>
+
+<h3>Metrics</h3>
+<table>
+<tr><th>Metric</th><th style="text-align:left">What it represents</th><th>Better</th></tr>
+<tr><td>Macro F1</td><td style="text-align:left">Three-class accuracy summary: the F1 score of each class averaged, so the small genuine class counts as much as the large AI class. <b>Headline number.</b></td><td>higher</td></tr>
+<tr><td>AUC (genuine vs not)</td><td style="text-align:left">How well the score ranks genuine clips above everything else, over all thresholds (0.5 = random, 1 = perfect). This is the verification question: "should I trust this clip?"</td><td>higher</td></tr>
+<tr><td>EER</td><td style="text-align:left">Equal error rate: the operating point where the rate of falsely rejected genuine clips equals the rate of accepted fakes.</td><td>lower</td></tr>
+<tr><td>Genuine accepted %</td><td style="text-align:left">Real videos correctly called genuine (the true-accept rate). Low means honest users get rejected.</td><td>higher</td></tr>
+<tr><td>Attacks caught %</td><td style="text-align:left">PRNU-tampered videos correctly flagged as manipulated.</td><td>higher</td></tr>
+<tr><td>AI caught %</td><td style="text-align:left">AI videos correctly called synthetic.</td><td>higher</td></tr>
+<tr><td>… accepted %</td><td style="text-align:left">For a type of forgery: how often it is <b>wrongly accepted as genuine</b>. This is the attacker's success rate.</td><td>lower</td></tr>
+<tr><td>p, 95% CI</td><td style="text-align:left">From a <b>camera-level paired bootstrap</b> (2,000 resamples of whole cameras, same clips for both systems). p &lt; 0.05 means the difference is unlikely to be luck. <span class="small">The minimum reportable value is p = 0.001 (1/2000 resamples, rounded up).</span> * in tables = significant vs HVPF.</td><td></td></tr>
+</table>
+
+<h2>2. Main result: unseen cameras and unseen datasets</h2>
+<table>
+<tr><th rowspan="2">System</th><th colspan="6">Unseen cameras (42,083 clips)</th><th colspan="2">Unseen datasets (4,716)</th></tr>
+<tr><th>F1</th><th>AUC</th><th>EER</th><th>Genuine acc.</th><th>Attacks caught</th><th>AI caught</th><th>F1</th><th>AUC</th></tr>
+<tr><td>PCE rule (conventional PRNU check)</td><td>–</td><td>0.552</td><td>0.449</td><td>22.5</td><td>–</td><td>–</td><td>–</td><td>0.424</td></tr>
+<tr><td>DINOv2 + linear probe</td><td>0.680*</td><td>0.754*</td><td>0.324</td><td>69.5</td><td>43.3</td><td>95.0</td><td>0.824*</td><td>0.967*</td></tr>
+<tr><td>UnivFD-style (CLIP ViT-B/16 probe)</td><td>0.726*</td><td>0.804*</td><td>0.283</td><td>63.4</td><td>61.5</td><td>93.8</td><td>0.790*</td><td>0.935*</td></tr>
+<tr><td>EfficientNet-B4 (end-to-end)</td><td>0.818*</td><td>0.903*</td><td>0.198</td><td>76.5</td><td>71.2</td><td>98.7</td><td>0.906</td><td>0.983</td></tr>
+<tr class="ours"><td>HVPF (ours)</td><td>0.842</td><td>0.921</td><td>0.175</td><td>78.9</td><td>75.2</td><td>98.8</td><td>0.920</td><td>0.987</td></tr>
+</table>
+<p><b>What it shows.</b></p>
+<ul>
+<li><b>The PCE rule fails as a verifier</b> (AUC 0.55, close to random) once the test includes attacks and AI video. It only answers "does the
+fingerprint match?", and forgeries are built to make it match. On unseen datasets its AUC is 0.42, below random, because AI clips with
+injected PRNU match <i>better</i> than stabilised real phones do. The PCE rule has no F1 because it gives a yes/no answer, not three classes.</li>
+<li><b>HVPF is best on every metric.</b> On unseen cameras its F1 is +0.024 over EfficientNet-B4 (CI [0.016, 0.031], p = 0.001), +0.116 over
+UnivFD and +0.161 over DINOv2, all significant. Its biggest margin is on <i>attacks caught</i> (+4.1 to +32 points): generic image
+detectors see image content, not sensor noise, so they miss PRNU tampering.</li>
+<li><b>Unseen datasets:</b> HVPF beats UnivFD and DINOv2 significantly. Against EfficientNet-B4 the gap (+0.014 F1) is <b>not significant</b> (p = 0.22).
+HVPF accepts more real phones (+6.4 points, p = 0.049), but EfficientNet catches slightly more AI (+1.4 points, p = 0.04). Report this honestly: on
+this test the two are statistically tied.</li>
+</ul>
+<img src="fig_roc.png" style="width:72%">
+<p class="small">Figure 1. ROC curves (genuine vs not) on unseen cameras. HVPF sits above every baseline; the PCE rule is near the diagonal.</p>
+
+<h2>3. Spoofing: is a forged fingerprint accepted? (% accepted as genuine, lower is better)</h2>
+<table>
+<tr><th>System</th><th>AI + PRNU (seen generators)</th><th>AI + PRNU (unseen generators)</th><th>Camera injection α=1</th><th>Camera injection α=0.5</th></tr>
+<tr><td>PCE rule (conventional)</td><td class="b">95.8</td><td class="b">95.8</td><td class="b">98.5</td><td class="b">76.2</td></tr>
+<tr><td>DINOv2 + linear</td><td>1.2</td><td>1.7</td><td>48.2</td><td>57.5</td></tr>
+<tr><td>UnivFD-style CLIP</td><td>0.9</td><td>0.8</td><td>15.0</td><td>22.5</td></tr>
+<tr><td>EfficientNet-B4</td><td>0.1</td><td>0.3</td><td>3.4</td><td>9.4</td></tr>
+<tr class="ours"><td>HVPF (ours)</td><td class="g">0.0</td><td class="g">0.0</td><td class="g">0.3</td><td class="g">4.8</td></tr>
+</table>
+<ul>
+<li><b>This is the core claim.</b> Copying a camera's fingerprint fools the standard check almost every time (95.8–98.5%). HVPF stops almost all of it.</li>
+<li><b>AI + PRNU</b> is easy for every learned detector, because the AI content gives itself away. <b>Camera-to-camera injection</b> is the hard case: the content
+is real video, and only the noise is forged. Here the generic detectors leak (DINOv2 48%, CLIP 15%), and HVPF is lowest (0.3% vs EfficientNet's 3.4%, p = 0.001).</li>
+<li>Half-strength injection (α = 0.5) is the weakest spot for HVPF (4.8%). A weaker fingerprint is also less useful to an attacker, since PCE accepts only 76% of those clips.</li>
+</ul>
+
+<h2 class="pb">4. The base papers and how we compare with each</h2>
+<p>Two kinds of comparison are used. (a) <b>Base papers</b> from the thesis proposal: they solve <i>part</i> of our problem, so each is compared on its own
+task. (b) <b>Re-implemented baselines</b>: standard detectors from the literature, trained and tested by us on <i>exactly the same clips and splits</i>.
+Only (b) gives a strict head-to-head, which is what reviewers expect.</p>
+
+<h3>4.1 Khan, Islam &amp; Hasan (2025): the attack we defend against</h3>
+<p class="small">"Spoofing Camera Source Attribution via PRNU Transfer Attacks on Physical and AI Generated Images", ISC 2025, Springer LNCS, pp. 279–299. doi:10.1007/978-3-032-08124-7_17</p>
+<p><b>What they did:</b> they copied a real camera's PRNU into other images, including AI-generated ones, and showed that source verification accepts 85.5% of them. Images only, attack only, no defence.<br>
+<b>How we compare:</b> we apply the same attack to <b>video</b>, using both AI video + injected PRNU and camera-to-camera injection, and measure the acceptance rate.</p>
+<table>
+<tr><th>Accepted as genuine (lower is better)</th><th>Khan et al. (images)</th><th>PCE rule (our video)</th><th>HVPF Phase 3</th><th>HVPF final</th></tr>
+<tr><td>AI + injected PRNU, full strength</td><td>85.5%</td><td>95.8–98.1%</td><td>0.1–0.8%</td><td class="g">0.0%</td></tr>
+<tr><td>Camera-to-camera injection, α = 1</td><td>85.5%</td><td>97.8–98.5%</td><td>1.2%</td><td class="g">0.3%</td></tr>
+<tr><td>Camera-to-camera injection, α = 0.5</td><td>–</td><td>69.5–76.2%</td><td>13.8%</td><td class="g">4.8%</td></tr>
+</table>
+<p><b>Meaning:</b> we <i>confirm</i> Khan's finding on video (the attack works even better, ~98%), and we provide the defence they did not have.</p>
+
+<h3>4.2 PDC-ViT, Elharrouss et al. (2025): camera identification</h3>
+<p class="small">"PDC-ViT: source camera identification using pixel difference convolution and vision transformer", Neural Computing and Applications 37(9):6933–6949. doi:10.1007/s00521-025-11004-z</p>
+<p><b>What they did:</b> a learned model that names which camera recorded a video. Every camera is seen in training (80/20 split), and testing uses clean videos only.<br>
+<b>How we compare:</b> against our camera-identification step (PRNU + trained ViT hybrid, with near-duplicate scenes kept apart). The PDC-ViT numbers are copied from their paper.</p>
+<table>
+<tr><th>Camera-ID accuracy</th><th>PDC-ViT (paper)</th><th>HVPF PRNU + ViT</th></tr>
+<tr><td>VISION</td><td>94.3%</td><td>67.4% (all 35 cameras); 88.1% on the 21 with usable PRNU; PRNU alone 100% on non-stabilised</td></tr>
+<tr><td>Video-ACID</td><td>74.8%</td><td class="g">94.9%</td></tr>
+<tr><td>FloreView</td><td>not tested</td><td>90.1%</td></tr>
+</table>
+<p><b>Meaning:</b> camera ID is a side result. It shows PRNU-based attribution works on clean video, which is why the forged-fingerprint attack matters.
+PDC-ViT never tested attacked or AI video. <span class="b">Caution:</span> the protocols differ and we did not re-run PDC-ViT, so this is not a strict comparison.</p>
+
+<h3>4.3 Bao et al. (2024): related work</h3>
+<p class="small">"An Anti-Forensics Video Forgery Detection Method Based on Noise Transfer Matrix Analysis", Sensors 24(16):5341.</p>
+<p>Bao et al. detect anti-forensic frame deletion using noise statistics, a different manipulation. They report only ROC curves, so they are cited as related
+work with no numerical comparison. In the thesis (Phase 2) we reported our detector at the same kind of low-false-alarm operating points (41% of fakes caught
+at 1% false alarms vs the PCE rule's 6%).</p>
+
+<h3>4.4 Re-implemented baselines (the strict head-to-head, Sections 2–3)</h3>
+<table>
+<tr><th>Baseline</th><th style="text-align:left">Origin and why it is used</th><th style="text-align:left">How we ran it</th></tr>
+<tr><td>EfficientNet-B4</td><td style="text-align:left">The standard deepfake-detection CNN: EfficientNet is the backbone family of the DFDC-winning detectors, and B4 is the variant most used in forensic papers (e.g. Bonettini et al., ICPR 2020)</td><td style="text-align:left">ImageNet weights, fine-tuned end-to-end on raw I-frames with the same recipe as our ViT; clip score = mean over 10 frames × 4 crops</td></tr>
+<tr><td>UnivFD-style CLIP</td><td style="text-align:left">Ojha et al., CVPR 2023, "Towards Universal Fake Image Detectors…": a linear probe on frozen CLIP features, well known for generalising to unseen generators</td><td style="text-align:left">Frozen CLIP ViT-B/16 frame features, mean over the clip, logistic regression (C chosen on validation cameras)</td></tr>
+<tr><td>DINOv2 linear</td><td style="text-align:left">Oquab et al., 2023: a strong general-purpose self-supervised vision backbone, used as a foundation-model baseline</td><td style="text-align:left">The same with frozen DINOv2-base features</td></tr>
+</table>
+<p>All three use the same clips, the same 5 camera folds, the same 10 frames and the same unseen-dataset test as HVPF, so every difference in Sections 2–3
+comes from the method, and the paired bootstrap p-values are valid.</p>
+
+<div class="box"><b>What none of the base papers cover (our contribution):</b>
+(1) PRNU injection <i>and</i> removal attacks on <b>video</b>, including re-shared video; (2) one model that separates genuine / manipulated / AI on camera
+<b>models never seen in training</b>; (3) a significant win over standard detectors on the same data; (4) an <b>adaptive attacker</b> evaluation and a defence (HVPF-R).</div>
+
+<h2>5. How the framework improved: Phase 3 → Phase 4 → final (Phase 5)</h2>
+<table>
+<tr><th>Final HVPF vs …</th><th>Test</th><th>F1 final</th><th>F1 other</th><th>Δ F1 [95% CI]</th><th>p</th></tr>
+<tr><td>Phase 4 (as reported, 5 frames)</td><td>unseen cameras</td><td>0.842</td><td>0.815</td><td>+0.027 [0.022, 0.032]</td><td>0.001</td></tr>
+<tr><td>Phase 4, 10 frames</td><td>unseen cameras</td><td>0.842</td><td>0.827</td><td>+0.015 [0.011, 0.019]</td><td>0.001</td></tr>
+<tr><td>Phase 4, 10 frames</td><td>unseen datasets</td><td>0.920</td><td>0.902</td><td>+0.018 [0.004, 0.032]</td><td>0.004</td></tr>
+<tr><td>Phase 3 (mid-evaluation)</td><td>Phase 3's own test clips</td><td>0.854</td><td>0.852</td><td>+0.002 [−0.014, 0.015]</td><td>0.86 (tie)</td></tr>
+<tr><td>Phase 3 (mid-evaluation)</td><td>unseen datasets</td><td>0.920</td><td>0.863</td><td class="g">+0.057 [0.034, 0.081]</td><td>0.001</td></tr>
+</table>
+<p><b>Meaning:</b> on the clips Phase 3 was tuned on, the final model ties overall. It accepts more genuine videos (+4.1 points, p = 0.036) and catches fewer
+attacks (−5.7 points, p = 0.028), a different trade-off. The real gain is <b>generalisation</b>: on data never seen in training, F1 rises from 0.863 to 0.920.
+The model configuration was chosen on <i>validation</i> data only (validation F1 0.8415 vs test 0.8417), so the result is not tuned to the test set.</p>
+
+<h2>6. Ablations: which parts matter</h2>
+<h3>6.1 Features (remove one feature group at a time; XGBoost, unseen cameras)</h3>
+<table>
+<tr><th>Configuration</th><th>F1</th><th>AUC</th><th>Drop in F1</th></tr>
+<tr><td>all features</td><td>0.758</td><td>0.861</td><td>–</td></tr>
+<tr><td>without Noiseprint++</td><td>0.710</td><td>0.814</td><td class="b">−0.048</td></tr>
+<tr><td>without temporal consistency (TSNCS)</td><td>0.740</td><td>0.840</td><td>−0.018</td></tr>
+<tr><td>without PRNU</td><td>0.739</td><td>0.843</td><td>−0.019</td></tr>
+<tr><td>without residual stats</td><td>0.751</td><td>0.858</td><td>−0.007</td></tr>
+<tr><td>without FFT</td><td>0.756</td><td>0.859</td><td>−0.002</td></tr>
+</table>
+<p><b>Meaning:</b> every feature group helps; Noiseprint++ helps most, and PRNU and temporal consistency come next. The XGBoost F1 (0.758) is lower than the full
+system's (0.842) because this ablation uses the feature classifier alone, without the ViT and the fusion.</p>
+<h3>6.2 The three new components (each added on its own to the hybrid stack)</h3>
+<table>
+<tr><th>Configuration</th><th>F1 unseen cameras</th><th>F1 unseen datasets</th></tr>
+<tr><td>hybrid stacking (PRNU, Noiseprint++, residual, FFT, TSNCS, ViT)</td><td>0.827</td><td>0.902</td></tr>
+<tr><td>only + reliability-aware fusion</td><td>0.829</td><td>0.912</td></tr>
+<tr><td>only + processing-matched training</td><td>0.821</td><td>0.879</td></tr>
+<tr><td>only + camera-calibrated PRNU</td><td>0.836</td><td>0.925</td></tr>
+<tr class="ours"><td>full HVPF (all three)</td><td>0.842</td><td>0.920</td></tr>
+</table>
+<p><b>Meaning:</b> camera calibration is the biggest single gain. Processing-matched training is slightly negative on its own but helps in combination,
+and the full system is best on unseen cameras.</p>
+
+<h2>7. Three-zone decision (accept / inconclusive / flag)</h2>
+<table>
+<tr><th>True class</th><th>accepted</th><th>inconclusive</th><th>accused / flagged</th></tr>
+<tr><td>genuine (unseen cameras)</td><td>54.7</td><td>38.2</td><td>7.2</td></tr>
+<tr><td>attacked (unseen cameras)</td><td>6.2</td><td>36.9</td><td>56.8</td></tr>
+<tr><td>AI (unseen cameras)</td><td>0.1</td><td>0.7</td><td>99.2</td></tr>
+<tr><td>genuine (unseen datasets)</td><td>73.8</td><td>19.3</td><td>6.9</td></tr>
+<tr><td>AI (unseen datasets)</td><td>0.0</td><td>6.8</td><td>93.1</td></tr>
+</table>
+<p><b>Meaning:</b> instead of forcing a yes/no, uncertain clips go to an "inconclusive" zone for a human examiner. When HVPF <i>does</i> say "genuine", it is
+almost never wrong (6.2% of attacks, 0.1% of AI). Only ~7% of real videos are wrongly accused. The cost is that 38% of real clips need manual review.</p>
+
+<h2 class="pb">8. Adaptive attacker and the robust version HVPF-R</h2>
+<p><b>Setup:</b> the attacker knows the system and can <i>query</i> it. For each of 55 target videos (5 test cameras) the attacker tries a grid of attack settings
+(36 for injection, 24 for removal: fingerprint strength, blending, re-encoding CRF, denoising) and keeps any setting that HVPF accepts. A video counts as broken
+if <i>any</i> setting gets through. This is a much stronger attacker than the fixed attacks in Sections 2–3.</p>
+<table>
+<tr><th>System</th><th>Clean F1 cameras</th><th>Clean F1 datasets</th><th>Injection, non-adaptive</th><th>Injection, adaptive</th><th>Usable forgery</th><th>Removal, non-adaptive</th><th>Removal, adaptive</th><th>3-zone inj. / rem.</th></tr>
+<tr><td>HVPF</td><td>0.834</td><td>0.922</td><td>1.8</td><td class="b">67.3</td><td class="b">49.1</td><td>1.8</td><td class="b">87.3</td><td>30.9 / 60.0</td></tr>
+<tr class="ours"><td>HVPF-R (robust)</td><td>0.811</td><td>0.900</td><td>0.0</td><td>21.8</td><td class="g">3.6</td><td>1.8</td><td>49.1</td><td class="g">1.8 / 20.0</td></tr>
+<tr><td>HVPF-R + round 2 (not kept)</td><td>0.792</td><td>0.929</td><td>1.8</td><td>30.9</td><td>18.2</td><td>1.8</td><td>47.3</td><td>7.3 / 23.6</td></tr>
+</table>
+<dl>
+<dt>Injection / removal, adaptive (%)</dt><dd>The share of the 55 videos for which the attacker found at least one setting that HVPF calls genuine.</dd>
+<dt>Usable forgery (%)</dt><dd>HVPF says genuine <b>and</b> the PCE rule accepts the fake camera, so the forgery fools <i>both</i> checks. This is the attack that matters in practice.</dd>
+<dt>3-zone</dt><dd>The share that lands in the "accept" zone; inconclusive results don't count as the attacker's success.</dd>
+<dt>Clean F1</dt><dd>Normal accuracy on the fixed split (these bundles use the fixed split, hence 0.834 rather than 0.842).</dd>
+</dl>
+<p><b>What happened:</b> the attacker found a shortcut. Every training attack had been encoded at CRF 20, so re-encoding at a different CRF let forgeries through.
+HVPF-R trains on attacks at CRF 18/23/28. Usable forgeries fall from <b>49.1% to 3.6%</b> and removal from 87.3% to 49.1%; with the 3-zone rule, the figures fall to 1.8% / 20%.
+Exact McNemar tests: 25 videos fixed and 0 newly broken for injection (p = 6×10⁻⁸); 21 fixed and 0 broken for removal (p = 9.5×10⁻⁷).<br>
+<b>The cost:</b> clean F1 −0.023 (p = 0.001), and normal attacks caught fall from 73% to 62%. A second hardening round made things worse and is reported as a negative result.</p>
+<img src="fig_adaptive.png" style="width:78%">
+<p class="small">Figure 2. Adaptive-attack success before (HVPF) and after (HVPF-R) compression-diverse training.</p>
+
+<h2>9. Real WhatsApp / YouTube test (in progress)</h2>
+<p>150 test clips (50 genuine, 50 attacked, 50 AI) are prepared for upload through the real platforms. Only the <b>originals</b> have been scored so far:</p>
+<table>
+<tr><th>Class (originals)</th><th>Clips</th><th>HVPF correct %</th><th>HVPF accepted %</th><th>HVPF-R correct %</th><th>PCE accepts %</th></tr>
+<tr><td>genuine</td><td>50</td><td>50.0</td><td>50.0</td><td>46.0</td><td>24.0</td></tr>
+<tr><td>attacked</td><td>50</td><td>94.0</td><td>4.0</td><td>96.0</td><td>52.0</td></tr>
+<tr><td>AI</td><td>50</td><td>96.0</td><td>0.0</td><td>98.0</td><td>28.0</td></tr>
+</table>
+<p><b>Meaning:</b> attacks and AI are caught. Genuine clips are accepted only half the time because these originals are <i>re-encoded</i> real videos at CRF 20,
+which look like the training attacks (the same weakness Section 8 found). The WhatsApp/YouTube rows are added once the uploads are in
+<code>data/paper/real_upload/</code>.</p>
+
+<h2>10. Honest limitations (to state in the paper)</h2>
+<ul>
+<li>An adaptive <b>removal</b> attacker still succeeds on 49% of videos (20% with the 3-zone rule). Robustness comes at a cost of 0.023 F1.</li>
+<li>The adaptive attack covers only 5 target cameras / 55 videos, and McNemar treats videos as independent.</li>
+<li>The EfficientNet-B4 comparison on unseen datasets is a statistical tie (p = 0.22).</li>
+<li>The PDC-ViT numbers come from its paper (different protocol); it was not re-run on our splits.</li>
+<li>The upload test and adaptive attack use VISION only (raw ACID is not on this PC). The real-platform rows are still pending.</li>
+<li>The three-zone rule sends ~38% of genuine clips from unseen cameras to manual review.</li>
+</ul>
+
+<p class="small" style="margin-top:14pt">Sources: data/paper/stats.txt, compare.txt, adaptive/summary*.txt, real_upload/summary.txt; tables generated by scripts/paper_tables.py.</p>
+</body></html>
